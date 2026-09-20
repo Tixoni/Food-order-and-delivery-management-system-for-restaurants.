@@ -1,0 +1,7 @@
+node_modules
+dist
+build
+coverage
+spikes/**/data
+*.osm.pbf
+package-lock.json
