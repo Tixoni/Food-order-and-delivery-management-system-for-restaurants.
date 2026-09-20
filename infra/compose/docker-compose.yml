@@ -1,0 +1,129 @@
+name: food-delivery
+
+# Окружение разработки.
+#
+# Профили позволяют поднимать только то, что нужно прямо сейчас:
+#   core  — база, кэш, брокер: повседневная разработка
+#   auth  — плюс провайдер идентификации
+#   full  — всё сразу: демонстрация и нагрузочное тестирование
+#
+# Запуск:  npm run env:up          (профиль core)
+#          npm run env:up:full
+#
+# Профили observability и geo добавляются в итерации 4 вместе
+# с соответствующими компонентами.
+
+services:
+  # ─────────────────────────────────────────────────────────────
+  # PostgreSQL с географическим расширением.
+  # Держит четыре логические базы — по одной на сервис.
+  # ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: fd-postgres
+    profiles: ["core", "auth", "full"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      # Ускоряет первичную инициализацию, на реальные данные не влияет
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ─────────────────────────────────────────────────────────────
+  # Redis: корзина, кэш каталога, позиции курьеров, ограничение частоты.
+  # Данные эфемерные — потеря при перезапуске допустима.
+  # ─────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: fd-redis
+    profiles: ["core", "auth", "full"]
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────
+  # Apache Kafka в режиме KRaft — без отдельного ZooKeeper.
+  # Именно этот режим даёт расход памяти около 300 МБ вместо 1,5 ГБ
+  # у старой связки (измерено, заметка «30 — Спайк 3»).
+  # ─────────────────────────────────────────────────────────────
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: fd-kafka
+    profiles: ["core", "auth", "full"]
+    restart: unless-stopped
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:${KAFKA_PORT:-9092}
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      CLUSTER_ID: food-delivery-local-cluster
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9092'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ─────────────────────────────────────────────────────────────
+  # Keycloak: вход и роли. Поднимается только по необходимости —
+  # это самый тяжёлый компонент после базы.
+  # ─────────────────────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: fd-keycloak
+    profiles: ["auth", "full"]
+    restart: unless-stopped
+    command: ["start-dev", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+
+volumes:
+  postgres-data:
+  kafka-data:
+  keycloak-data:
