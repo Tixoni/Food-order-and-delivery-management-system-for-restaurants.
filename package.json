@@ -23,12 +23,15 @@
     "env:reset": "docker compose -f infra/compose/docker-compose.yml --profile full down -v",
     "env:logs": "docker compose -f infra/compose/docker-compose.yml logs -f",
     "env:ps": "docker compose -f infra/compose/docker-compose.yml ps",
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "test:cov": "npm run test:cov --workspaces --if-present"
+    "build": "npm run build -w @food-delivery/shared && npm run build -w @food-delivery/contracts && npm run build -w @food-delivery/catalog",
+    "test": "npm run test -w @food-delivery/shared && npm run test -w @food-delivery/catalog",
+    "test:cov": "npm run test:cov -w @food-delivery/shared && npm run test:cov -w @food-delivery/catalog",
+    "db:migrate": "docker exec -i fd-postgres psql -v ON_ERROR_STOP=1 -U app -d catalog_db < infra/migrations/catalog/001_restaurants.sql",
+    "env:up:apps": "docker compose -f infra/compose/docker-compose.yml --profile apps up -d --build"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.2",
     "eslint": "^9.17.0",
