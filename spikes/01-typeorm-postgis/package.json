@@ -1,0 +1,18 @@
+{
+  "name": "spike-typeorm-postgis",
+  "private": true,
+  "type": "module",
+  "description": "Одноразовый спайк: проверка работы TypeORM с географическими типами PostGIS",
+  "scripts": {
+    "spike": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "reflect-metadata": "^0.2.2",
+    "typeorm": "^0.3.20"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
