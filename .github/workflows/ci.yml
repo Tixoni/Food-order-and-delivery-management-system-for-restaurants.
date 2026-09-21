@@ -1,0 +1,174 @@
+name: Проверка кода
+
+# Запускается на каждое изменение в основной ветке и на каждый запрос слияния.
+# Смысл: не давать накапливаться сломанному состоянию. Даже при работе
+# в одиночку это экономит время — ошибка обнаруживается там, где сделана,
+# а не через две недели при попытке собрать всё вместе.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Новый запуск отменяет предыдущий для той же ветки: проверять устаревший
+# код бессмысленно, а ресурсы расходуются.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Проверка исходного кода: оформление, правила, типы, тесты.
+  # Здесь же срабатывает правило зависимостей между слоями —
+  # обращение из домена к инфраструктуре остановит сборку.
+  # ─────────────────────────────────────────────────────────────
+  quality:
+    name: Оформление, правила и тесты
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установка Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Проверка оформления
+        run: npm run format:check
+
+      - name: Проверка правил кода
+        run: npm run lint
+
+      - name: Сборка
+        run: npm run build
+
+      - name: Тесты
+        run: npm test
+
+      - name: Отчёт о покрытии
+        run: npm run test:cov
+
+      - name: Сохранение отчёта о покрытии
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            packages/*/coverage/
+            apps/*/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ─────────────────────────────────────────────────────────────
+  # Проверка миграций на чистой базе.
+  #
+  # Отдельная задача, потому что проверяет другое: не код, а то,
+  # что структура базы восстанавливается с нуля одной командой.
+  # Миграция, работающая на уже наполненной базе разработчика,
+  # вполне может не работать на пустой.
+  # ─────────────────────────────────────────────────────────────
+  migrations:
+    name: Миграции на чистой базе
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Создание баз сервисов
+        run: |
+          for db in catalog_db order_db payment_db delivery_db; do
+            PGPASSWORD=app psql -h localhost -U app -d app -c "CREATE DATABASE $db"
+            PGPASSWORD=app psql -h localhost -U app -d "$db" -c "CREATE EXTENSION IF NOT EXISTS postgis"
+            PGPASSWORD=app psql -h localhost -U app -d "$db" -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'
+          done
+
+      - name: Применение миграций
+        run: npm run db:migrate
+
+      - name: Повторное применение не должно ничего менять
+        run: |
+          output=$(npm run db:migrate 2>&1)
+          echo "$output"
+          if echo "$output" | grep -q "применена"; then
+            echo "ОШИБКА: повторный запуск миграций изменил базу"
+            exit 1
+          fi
+
+      - name: Наполнение тестовыми данными
+        run: npm run db:seed
+
+      - name: Проверка географического запроса
+        run: |
+          PGPASSWORD=app psql -h localhost -U app -d catalog_db -tAc "
+            SELECT CASE WHEN count(*) > 0
+                   THEN 'геозапрос вернул ' || count(*) || ' ресторанов'
+                   ELSE 'ОШИБКА: геозапрос ничего не нашёл' END
+            FROM delivery_zones z JOIN restaurants r ON r.id = z.restaurant_id
+            WHERE ST_Contains(z.area::geometry,
+                              ST_SetSRID(ST_MakePoint(37.6176, 55.7558), 4326)::geometry)
+              AND r.is_active" | tee result.txt
+          grep -q "ОШИБКА" result.txt && exit 1 || true
+
+  # ─────────────────────────────────────────────────────────────
+  # Сборка образов. Проверяет то, чего не видят предыдущие задачи:
+  # собирается ли сервис в контейнере, где нет ни кэша, ни лишних файлов.
+  # ─────────────────────────────────────────────────────────────
+  images:
+    name: Сборка образов
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: quality
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, catalog, order, payment, delivery]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Сборка образа ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.service }}/Dockerfile
+          push: false
+          tags: food-delivery/${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
