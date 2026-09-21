@@ -23,8 +23,8 @@
     "env:reset": "docker compose -f infra/compose/docker-compose.yml --profile full down -v",
     "env:logs": "docker compose -f infra/compose/docker-compose.yml logs -f",
     "env:ps": "docker compose -f infra/compose/docker-compose.yml ps",
-    "build": "npm run build -w @food-delivery/shared && npm run build -w @food-delivery/contracts && npm run build -w @food-delivery/catalog",
-    "test": "npm run test -w @food-delivery/shared && npm run test -w @food-delivery/catalog",
+    "build": "npm run build -w @food-delivery/shared && npm run build -w @food-delivery/service-kit && npm run build -w @food-delivery/contracts && npm run build -w @food-delivery/catalog && npm run build -w @food-delivery/order && npm run build -w @food-delivery/payment && npm run build -w @food-delivery/delivery && npm run build -w @food-delivery/gateway",
+    "test": "npm run test -w @food-delivery/shared && npm run test -w @food-delivery/catalog && npm run test -w @food-delivery/order && npm run test -w @food-delivery/payment && npm run test -w @food-delivery/delivery && npm run test -w @food-delivery/gateway",
     "test:cov": "npm run test:cov -w @food-delivery/shared && npm run test:cov -w @food-delivery/catalog",
     "db:migrate": "docker exec -i fd-postgres psql -v ON_ERROR_STOP=1 -U app -d catalog_db < infra/migrations/catalog/001_restaurants.sql",
     "env:up:apps": "docker compose -f infra/compose/docker-compose.yml --profile apps up -d --build"

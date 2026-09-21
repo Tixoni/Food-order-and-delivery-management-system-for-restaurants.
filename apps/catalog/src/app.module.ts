@@ -1,35 +1,38 @@
-import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { ServiceKitModule } from "@food-delivery/service-kit";
 import { loadConfig } from "./config/configuration";
 import { RestaurantOrmEntity } from "./infrastructure/persistence/restaurant.orm-entity";
 import { TypeOrmRestaurantRepository } from "./infrastructure/persistence/typeorm-restaurant.repository";
-import { MetricsService } from "./infrastructure/observability/metrics.service";
+import { DatabaseReadinessCheck } from "./infrastructure/persistence/database-readiness.check";
 import { RESTAURANT_REPOSITORY } from "./application/ports/restaurant.repository";
 import { ListRestaurantsUseCase } from "./application/use-cases/list-restaurants.use-case";
-import { HealthController } from "./interface/http/health.controller";
-import { MetricsController } from "./interface/http/metrics.controller";
 import { RestaurantsController } from "./interface/http/restaurants.controller";
-import { CorrelationMiddleware } from "./interface/http/correlation.middleware";
 
 const config = loadConfig();
 
 @Module({
   imports: [
+    // Проверки, метрики и сквозной идентификатор — из общего каркаса
+    ServiceKitModule.forRoot({
+      serviceName: "catalog",
+      readinessChecks: [DatabaseReadinessCheck],
+      readinessTokens: [DatabaseReadinessCheck],
+    }),
     TypeOrmModule.forRoot({
       type: "postgres",
       ...config.database,
       entities: [RestaurantOrmEntity],
       // Схема создаётся миграциями, а не автоматически: изменение структуры
-      // базы должно быть осознанным и воспроизводимым (шаг 0.6).
+      // базы должно быть осознанным и воспроизводимым.
       synchronize: false,
       migrationsRun: false,
       logging: config.nodeEnv === "development" ? ["error", "warn"] : ["error"],
     }),
     TypeOrmModule.forFeature([RestaurantOrmEntity]),
   ],
-  controllers: [HealthController, MetricsController, RestaurantsController],
+  controllers: [RestaurantsController],
   providers: [
-    MetricsService,
     ListRestaurantsUseCase,
     {
       // Здесь абстракция встречается с реализацией. Единственное место,
@@ -39,8 +42,4 @@ const config = loadConfig();
     },
   ],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(CorrelationMiddleware).forRoutes("*");
-  }
-}
+export class AppModule {}

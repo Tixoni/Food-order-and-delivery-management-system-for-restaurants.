@@ -14,7 +14,7 @@ name: food-delivery
 # Профили observability и geo добавляются в итерации 4 вместе
 # с соответствующими компонентами.
 #
-# ВАЖНО: порты публикуются в диапазоне 55xxx, а не в стандартных 5432/6379/9092.
+# ВАЖНО: порты публикуются в диапазоне 1xxxx, а не в стандартных 5432/6379/9092.
 # Причина — на машине разработчика может быть установлена своя PostgreSQL
 # или Redis. Windows допускает двух слушателей на одном порту, соединение
 # достаётся тому, кто встал первым, и ошибка выглядит как неверный пароль.
@@ -163,6 +163,90 @@ services:
       CATALOG_DB: ${CATALOG_DB:-catalog_db}
     ports:
       - "${CATALOG_PORT:-13001}:3001"
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: apps/gateway/Dockerfile
+    image: food-delivery/gateway:local
+    container_name: fd-gateway
+    profiles: ["apps", "full"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GATEWAY_PORT: 3000
+    ports:
+      - "${GATEWAY_PORT:-13000}:3000"
+
+  order:
+    build:
+      context: ../..
+      dockerfile: apps/order/Dockerfile
+    image: food-delivery/order:local
+    container_name: fd-order
+    profiles: ["apps", "full"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ORDER_PORT: 3002
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      ORDER_DB: ${ORDER_DB:-order_db}
+    ports:
+      - "${ORDER_PORT:-13002}:3002"
+
+  payment:
+    build:
+      context: ../..
+      dockerfile: apps/payment/Dockerfile
+    image: food-delivery/payment:local
+    container_name: fd-payment
+    profiles: ["apps", "full"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PAYMENT_PORT: 3003
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      PAYMENT_DB: ${PAYMENT_DB:-payment_db}
+    ports:
+      - "${PAYMENT_PORT:-13003}:3003"
+
+  delivery:
+    build:
+      context: ../..
+      dockerfile: apps/delivery/Dockerfile
+    image: food-delivery/delivery:local
+    container_name: fd-delivery
+    profiles: ["apps", "full"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DELIVERY_PORT: 3004
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      DELIVERY_DB: ${DELIVERY_DB:-delivery_db}
+    ports:
+      - "${DELIVERY_PORT:-13004}:3004"
 
 volumes:
   postgres-data:
