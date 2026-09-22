@@ -5,6 +5,8 @@ import {
   type NestModule,
   Provider,
 } from "@nestjs/common";
+import { APP_FILTER } from "@nestjs/core";
+import { AppExceptionFilter } from "./app-exception.filter";
 import { CorrelationMiddleware } from "./correlation.middleware";
 import { HealthController, MetricsController } from "./kit.controllers";
 import { MetricsService } from "./metrics.service";
@@ -37,6 +39,9 @@ export class ServiceKitModule implements NestModule {
       providers: [
         { provide: SERVICE_NAME, useValue: options.serviceName },
         MetricsService,
+        // Перевод ошибок приложения в ответы клиенту. Регистрируется здесь,
+        // чтобы каждый сервис не подключал его отдельно и не забыл это сделать.
+        { provide: APP_FILTER, useClass: AppExceptionFilter },
         ...checkProviders,
         {
           provide: READINESS_CHECKS,

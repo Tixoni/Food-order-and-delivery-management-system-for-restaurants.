@@ -53,7 +53,10 @@ export default tseslint.config(
       ],
       "@typescript-eslint/consistent-type-imports": "error",
       "no-console": ["warn", { allow: ["warn", "error"] }],
-      eqeqeq: ["error", "always"],
+      // Сравнение с null нестрогое разрешено намеренно: `x != null` —
+      // общепринятая запись проверки «ни null, ни undefined». Остальные
+      // нестрогие сравнения остаются ошибкой.
+      eqeqeq: ["error", "always", { null: "ignore" }],
       "prefer-const": "error",
       "no-var": "error",
     },

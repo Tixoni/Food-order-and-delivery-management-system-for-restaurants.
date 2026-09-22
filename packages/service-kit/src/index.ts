@@ -1,3 +1,4 @@
+export * from "./app-exception.filter";
 export * from "./bootstrap";
 export * from "./correlation.middleware";
 export * from "./kit.controllers";
