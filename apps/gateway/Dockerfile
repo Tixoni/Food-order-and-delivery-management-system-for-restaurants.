@@ -20,8 +20,9 @@ COPY apps/gateway ./apps/gateway
 
 RUN npm run build -w @food-delivery/shared \
     && npm run build -w @food-delivery/service-kit \
+    && npm run build -w @food-delivery/contracts \
     && npm run build -w @food-delivery/gateway \
-    && npm prune --omit=dev
+    && npm ci --omit=dev
 
 # ─────────── Этап 2: выполнение ───────────
 FROM node:22-alpine AS runtime
@@ -34,6 +35,9 @@ COPY --from=builder --chown=node:node /app/packages/shared/package.json ./packag
 COPY --from=builder --chown=node:node /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder --chown=node:node /app/packages/service-kit/package.json ./packages/service-kit/
 COPY --from=builder --chown=node:node /app/packages/service-kit/dist ./packages/service-kit/dist
+COPY --from=builder --chown=node:node /app/packages/service-kit/node_modules ./packages/service-kit/node_modules
+COPY --from=builder --chown=node:node /app/packages/contracts/package.json ./packages/contracts/
+COPY --from=builder --chown=node:node /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder --chown=node:node /app/apps/gateway/package.json ./apps/gateway/
 COPY --from=builder --chown=node:node /app/apps/gateway/dist ./apps/gateway/dist
 

@@ -42,6 +42,9 @@ export class ItemOption {
     if (props.name.trim().length === 0) {
       throw new OptionSelectionError("название варианта не может быть пустым");
     }
+    if (props.name.trim().length > 200) {
+      throw new OptionSelectionError("название варианта длиннее 200 символов");
+    }
     assertMoney(props.priceDelta, `вариант «${props.name}»`, { allowNegative: true });
 
     return new ItemOption(props.id, props.name.trim(), props.priceDelta, props.isAvailable);
@@ -74,6 +77,12 @@ export class OptionGroup {
 
     if (name.trim().length === 0) {
       throw new OptionSelectionError("название группы модификаторов не может быть пустым");
+    }
+    if (name.trim().length > 200) {
+      throw new OptionSelectionError("название группы модификаторов длиннее 200 символов");
+    }
+    if (selectionType !== "single" && selectionType !== "multiple") {
+      throw new OptionSelectionError("неизвестный тип выбора модификаторов");
     }
     if (!Number.isInteger(minSelect) || minSelect < 0) {
       throw new OptionSelectionError(`группа «${name}»: минимум должен быть целым от нуля`);

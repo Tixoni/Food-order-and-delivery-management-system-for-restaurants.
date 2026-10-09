@@ -133,6 +133,20 @@ jobs:
       - name: Наполнение тестовыми данными
         run: npm run db:seed
 
+      # Хранилище заказов проверяется на настоящей СУБД: оптимистичная
+      # блокировка, уникальный ключ идемпотентности, отметки обработанных
+      # сообщений и аренда шагов саги — свойства SQL, а не кода приложения.
+      - name: Интеграционные тесты заказов на PostgreSQL
+        env:
+          ORDER_DB: order_verify_db
+          MIGRATION_SERVICE: order
+          ORDER_INTEGRATION_DB_URL: postgres://app:app@localhost:5432/order_verify_db
+        run: |
+          PGPASSWORD=app psql -h localhost -U app -d app -c "CREATE DATABASE order_verify_db"
+          PGPASSWORD=app psql -h localhost -U app -d order_verify_db -c "CREATE EXTENSION IF NOT EXISTS postgis"
+          npm run db:migrate
+          npm test -w @food-delivery/order -- order.integration
+
       - name: Проверка географического запроса
         run: |
           PGPASSWORD=app psql -h localhost -U app -d catalog_db -tAc "

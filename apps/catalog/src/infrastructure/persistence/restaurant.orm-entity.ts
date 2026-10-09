@@ -51,6 +51,9 @@ export class RestaurantOrmEntity {
   @Column("boolean", { name: "is_active", default: true })
   isActive!: boolean;
 
+  @Column("varchar", { name: "time_zone", length: 64, default: "Europe/Moscow" })
+  timeZone!: string;
+
   @Column("timestamptz", { name: "created_at", default: () => "now()" })
   createdAt!: Date;
 

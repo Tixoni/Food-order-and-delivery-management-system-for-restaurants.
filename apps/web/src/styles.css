@@ -1,0 +1,413 @@
+/*
+ * Оформление приложения.
+ *
+ * Вёрстка построена от узкого экрана к широкому (требование UI-1:
+ * приложение работает от 360 px). Обратный порядок — «сделаем для
+ * настольного, потом ужмём» — приводит к тому, что на телефоне
+ * появляется горизонтальная прокрутка, и заметно это слишком поздно.
+ *
+ * Размеры заданы в единицах, зависящих от настроек читателя, а не
+ * в пикселях: человек, увеличивший шрифт в браузере, должен увидеть
+ * увеличенный шрифт и здесь.
+ */
+
+:root {
+  --fg: #1c1b1a;
+  --fg-muted: #6b6864;
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --border: #e5e2dd;
+  --accent: #b4491f;
+  --accent-soft: #fdf1ec;
+  --danger: #a32020;
+  --ok: #2f6b3a;
+  --radius: 0.75rem;
+  --shadow: 0 1px 2px rgb(28 27 26 / 6%), 0 4px 12px rgb(28 27 26 / 4%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ─────────────── Каркас страницы ─────────────── */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.header__brand {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.header__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-left: auto;
+  align-items: center;
+  font-size: 0.9375rem;
+}
+
+.header__nav a[aria-current="page"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.header__user {
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.page__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.375rem;
+  letter-spacing: -0.01em;
+}
+
+.page__hint {
+  margin: 0 0 1.25rem;
+  color: var(--fg-muted);
+  font-size: 0.9375rem;
+}
+
+/* ─────────────── Карточки и списки ─────────────── */
+
+.card {
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.grid {
+  display: grid;
+  gap: 0.75rem;
+  /* Одна колонка на телефоне, дальше — сколько поместится */
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 40rem) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  }
+}
+
+.restaurant {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: border-color 0.15s ease;
+}
+
+.restaurant:hover,
+.restaurant:focus-visible {
+  border-color: var(--accent);
+}
+
+.restaurant__name {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.restaurant__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+/* ─────────────── Меню ─────────────── */
+
+.section__title {
+  margin: 1.5rem 0 0.75rem;
+  font-size: 1.125rem;
+}
+
+.item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: flex-start;
+  padding: 0.875rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.item + .item {
+  margin-top: 0.5rem;
+}
+
+.item--stopped {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--surface),
+    var(--surface) 0.5rem,
+    #f6f4f1 0.5rem,
+    #f6f4f1 1rem
+  );
+  color: var(--fg-muted);
+}
+
+.item__body {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.item__name {
+  font-weight: 600;
+}
+
+.item__note {
+  margin-top: 0.125rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.item__aside {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ─────────────── Формы и кнопки ─────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field__label {
+  font-size: 0.875rem;
+  color: var(--fg-muted);
+}
+
+input,
+select,
+textarea {
+  padding: 0.625rem 0.75rem;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.row > .field {
+  flex: 1 1 9rem;
+}
+
+button {
+  padding: 0.625rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--surface);
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+button.secondary {
+  color: var(--fg);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+button.small {
+  padding: 0.375rem 0.625rem;
+  font-size: 0.875rem;
+}
+
+/* ─────────────── Состояния и сообщения ─────────────── */
+
+.notice {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+}
+
+.notice--error {
+  color: var(--danger);
+  background: #fdf0f0;
+  border: 1px solid #f3d6d6;
+}
+
+.notice--ok {
+  color: var(--ok);
+  background: #f0f6f1;
+  border: 1px solid #d5e6d8;
+}
+
+.notice--quiet {
+  color: var(--fg-muted);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+}
+
+.badge {
+  padding: 0.125rem 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.badge--stopped {
+  color: var(--danger);
+  background: #fdf0f0;
+}
+
+.badge--ok {
+  color: var(--ok);
+  background: #f0f6f1;
+}
+
+/* ─────────────── Карта ─────────────── */
+
+.map {
+  height: 24rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+@media (min-width: 48rem) {
+  .map {
+    height: 30rem;
+  }
+}
+
+.map__hint {
+  margin: 0.5rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+/* ─────────────── Таблица журнала ─────────────── */
+
+.log {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.log th,
+.log td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.log th {
+  color: var(--fg-muted);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+/* На узком экране таблица превращается в список: горизонтальная
+   прокрутка на телефоне недопустима (UI-1). */
+@media (max-width: 34rem) {
+  .log,
+  .log tbody,
+  .log tr,
+  .log td {
+    display: block;
+    width: 100%;
+  }
+
+  .log thead {
+    display: none;
+  }
+
+  .log tr {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .log td {
+    border: none;
+    padding: 0.125rem 0;
+  }
+
+  .log td::before {
+    content: attr(data-label) ": ";
+    color: var(--fg-muted);
+  }
+}

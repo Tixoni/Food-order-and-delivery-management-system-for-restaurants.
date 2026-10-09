@@ -1,27 +1,9 @@
 import { ValidationError } from "@food-delivery/shared";
 import { Restaurant } from "../../domain/restaurant";
-import type { RestaurantRepository } from "../ports/restaurant.repository";
 import { ListRestaurantsUseCase } from "./list-restaurants.use-case";
-
-/**
- * Заглушка вместо базы данных. Ровно то, ради чего вводился порт:
- * сценарий проверяется без PostgreSQL, контейнеров и сети.
- */
-class InMemoryRestaurantRepository implements RestaurantRepository {
-  constructor(private readonly items: Restaurant[] = []) {}
-
-  async findActive(limit: number, offset: number): Promise<Restaurant[]> {
-    return this.items.filter((r) => r.isActive).slice(offset, offset + limit);
-  }
-
-  async findById(id: string): Promise<Restaurant | null> {
-    return this.items.find((r) => r.id === id) ?? null;
-  }
-
-  async countActive(): Promise<number> {
-    return this.items.filter((r) => r.isActive).length;
-  }
-}
+// Заглушка хранилища — общая для всех тестов сценариев: сценарий
+// проверяется без PostgreSQL, контейнеров и сети.
+import { InMemoryRestaurantRepository } from "./in-memory.doubles";
 
 const restaurant = (id: string, isActive = true) =>
   Restaurant.create({

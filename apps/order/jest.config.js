@@ -4,6 +4,17 @@ module.exports = {
   testEnvironment: "node",
   rootDir: "src",
   testMatch: ["**/*.spec.ts"],
-  collectCoverageFrom: ["**/*.ts", "!**/main.ts", "!**/*.module.ts"],
+  collectCoverageFrom: [
+    "**/*.ts",
+    "!**/main.ts",
+    "!**/*.module.ts",
+    // Заглушки портов — часть тестов, а не проверяемый код
+    "!**/*.doubles.ts",
+  ],
   coverageDirectory: "../coverage",
+  moduleNameMapper: {
+    "^@food-delivery/shared$": "<rootDir>/../../../packages/shared/src",
+    "^@food-delivery/contracts$": "<rootDir>/../../../packages/contracts/src",
+    "^@food-delivery/service-kit$": "<rootDir>/../../../packages/service-kit/src",
+  },
 };

@@ -26,6 +26,14 @@ export class AppExceptionFilter implements ExceptionFilter {
   constructor(@Inject(SERVICE_NAME) private readonly serviceName: string) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
+    // Ответ формируется только для обычных запросов HTTP. У GraphQL свой
+    // формат ответа со списком ошибок, и он собирает его сам: попытка
+    // ответить здесь превратила бы понятное «нет прав» во «внутреннюю
+    // ошибку». Ошибка передаётся дальше без изменений.
+    if (host.getType<string>() !== "http") {
+      throw exception;
+    }
+
     const response = host.switchToHttp().getResponse();
     const correlationId = getCorrelationId();
 

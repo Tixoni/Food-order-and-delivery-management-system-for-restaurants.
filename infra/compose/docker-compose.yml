@@ -90,14 +90,20 @@ services:
     profiles: ["core", "auth", "apps", "full"]
     restart: unless-stopped
     ports:
-      - "${KAFKA_PORT:-19092}:9092"
+      - "${KAFKA_PORT:-19092}:19092"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:${KAFKA_PORT:-19092}
+      # Два слушателя вместо одного. Причина: брокер сообщает клиенту адрес,
+      # по которому к нему следует обращаться, и этот адрес обязан быть
+      # верным с точки зрения клиента. Для сервиса в общей сети это
+      # kafka:9092, для программы на машине разработчика — localhost:19092.
+      # С одним слушателем один из двух случаев перестаёт работать.
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_PORT:-19092}
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -122,9 +128,14 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     container_name: fd-keycloak
-    profiles: ["auth", "full"]
+    # Профиль apps добавлен на шаге 1.4: с этого момента сервисы проверяют
+    # права на каждом запросе, и без провайдера входа система неработоспособна.
+    profiles: ["auth", "apps", "full"]
     restart: unless-stopped
-    command: ["start-dev", "--http-port=8080"]
+    # Область со всеми ролями и учётными записями создаётся из файла,
+    # а не руками через веб-интерфейс: настройка прав должна быть
+    # воспроизводимой и лежать в репозитории рядом с кодом.
+    command: ["start-dev", "--http-port=8080", "--import-realm"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
@@ -133,6 +144,14 @@ services:
       - "${KEYCLOAK_PORT:-18080}:8080"
     volumes:
       - keycloak-data:/opt/keycloak/data
+      - ../keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      # В образе нет curl, поэтому проверяется само наличие слушателя.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8080'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
   # ─────────────────────────────────────────────────────────────
   # Сервис каталога. Профиль apps — чтобы при разработке можно было
@@ -150,6 +169,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -161,6 +186,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
       CATALOG_DB: ${CATALOG_DB:-catalog_db}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      # Внутри общей сети провайдер входа доступен по имени сервиса.
+      # Токен, выданный по этому адресу, содержит его же в поле издателя,
+      # поэтому проверка подписи сходится. При запуске сервисов на машине
+      # разработчика оба адреса — localhost, и они сходятся так же.
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/food-delivery
+      AUTH_AUDIENCE: food-delivery-api
     ports:
       - "${CATALOG_PORT:-13001}:3001"
 
@@ -172,13 +206,31 @@ services:
     container_name: fd-gateway
     profiles: ["apps", "full"]
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       GATEWAY_PORT: 3000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/food-delivery
+      AUTH_AUDIENCE: food-delivery-api
+      AUTH_CLIENT_ID: web
+      CATALOG_URL: http://catalog:3001
     ports:
       - "${GATEWAY_PORT:-13000}:3000"
 
+  # Сервис заказов: автомат статусов, оркестратор саги, таймеры, корзина.
+  # Платежи и доставка до их реализации — заглушки внутри процесса
+  # (PAYMENT_MODE / DELIVERY_MODE = stub); заглушка платежей умеет управляемые
+  # отказы для проверки компенсаций: PAYMENT_STUB_FAIL_OPERATION=capture.
   order:
     build:
       context: ../..
@@ -190,6 +242,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -199,6 +257,17 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
       ORDER_DB: ${ORDER_DB:-order_db}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/food-delivery
+      AUTH_AUDIENCE: food-delivery-api
+      CATALOG_URL: http://catalog:3001
+      PAYMENT_MODE: ${PAYMENT_MODE:-stub}
+      PAYMENT_URL: http://payment:3003
+      DELIVERY_MODE: ${DELIVERY_MODE:-stub}
+      DELIVERY_URL: http://delivery:3004
+      PAYMENT_STUB_FAIL_OPERATION: ${PAYMENT_STUB_FAIL_OPERATION:-}
     ports:
       - "${ORDER_PORT:-13002}:3002"
 

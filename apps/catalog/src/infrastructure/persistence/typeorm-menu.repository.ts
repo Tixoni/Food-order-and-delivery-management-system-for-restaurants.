@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository } from "typeorm";
+import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
+import { DataSource, In, Repository } from "typeorm";
+import type { DomainEvent } from "@food-delivery/shared";
 import type { MenuCategory } from "../../domain/menu-category";
 import type { MenuItem } from "../../domain/menu-item";
 import type { MenuRepository } from "../../application/ports/menu.repository";
@@ -11,6 +12,7 @@ import {
   MenuItemOrmEntity,
 } from "./menu.orm-entities";
 import { MenuMapper } from "./menu.mapper";
+import { writeOutbox } from "./outbox.writer";
 
 /**
  * Реализация порта поверх PostgreSQL. Инфраструктурный слой —
@@ -27,6 +29,8 @@ export class TypeOrmMenuRepository implements MenuRepository {
     private readonly groups: Repository<ItemOptionGroupOrmEntity>,
     @InjectRepository(ItemOptionOrmEntity)
     private readonly options: Repository<ItemOptionOrmEntity>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async findCategories(restaurantId: string): Promise<MenuCategory[]> {
@@ -42,7 +46,9 @@ export class TypeOrmMenuRepository implements MenuRepository {
     options: { includeUnavailable?: boolean } = {},
   ): Promise<MenuItem[]> {
     const rows = await this.items.find({
-      where: options.includeUnavailable ? { restaurantId } : { restaurantId, isAvailable: true },
+      where: options.includeUnavailable
+        ? { restaurantId, isDeleted: false }
+        : { restaurantId, isAvailable: true, isDeleted: false },
       order: { sortOrder: "ASC", name: "ASC" },
     });
 
@@ -50,17 +56,28 @@ export class TypeOrmMenuRepository implements MenuRepository {
   }
 
   async findItemById(itemId: string): Promise<MenuItem | null> {
-    const row = await this.items.findOne({ where: { id: itemId } });
+    const row = await this.items.findOne({ where: { id: itemId, isDeleted: false } });
     if (!row) return null;
 
     const [withGroups] = await this.attachOptionGroups([row]);
     return withGroups ?? null;
   }
 
-  async saveItem(item: MenuItem): Promise<void> {
+  async saveItem(item: MenuItem, events: DomainEvent[] = []): Promise<void> {
+    const row = MenuMapper.itemToPersistence(item) as MenuItemOrmEntity;
+
     // upsert, а не save: save сначала делает выборку, чтобы решить,
     // вставка это или обновление, — лишний запрос на каждое сохранение.
-    await this.items.upsert(MenuMapper.itemToPersistence(item) as MenuItemOrmEntity, ["id"]);
+    if (events.length === 0) {
+      await this.items.upsert(row, ["id"]);
+      return;
+    }
+
+    // Блюдо и событие о его изменении — одной транзакцией (REL-3).
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(MenuItemOrmEntity).upsert(row, ["id"]);
+      await writeOutbox(manager, events);
+    });
   }
 
   async saveCategory(category: MenuCategory): Promise<void> {

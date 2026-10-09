@@ -4,4 +4,9 @@ module.exports = {
   testEnvironment: "node",
   rootDir: "src",
   testMatch: ["**/*.spec.ts"],
+  collectCoverageFrom: ["**/*.ts", "!**/index.ts"],
+  coverageDirectory: "../coverage",
+  moduleNameMapper: {
+    "^@food-delivery/shared$": "<rootDir>/../../../packages/shared/src",
+  },
 };

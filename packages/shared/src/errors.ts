@@ -13,6 +13,7 @@ export type ErrorCode =
   | "FORBIDDEN"
   | "UNAUTHORIZED"
   | "DOMAIN_RULE_VIOLATED"
+  | "RATE_LIMITED"
   | "EXTERNAL_SERVICE_FAILED"
   | "TIMEOUT"
   | "INTERNAL";
@@ -71,6 +72,19 @@ export class ConflictError extends AppError {
 export class DomainRuleError extends AppError {
   readonly code = "DOMAIN_RULE_VIOLATED" as const;
   readonly httpStatus = 422;
+}
+
+/**
+ * Слишком частые обращения.
+ *
+ * Отдельный код, а не общая ошибка проверки: по нему клиентская часть
+ * понимает, что повторять запрос имеет смысл, но позже, — и показывает
+ * это пользователю, вместо того чтобы сообщать о неверном пароле.
+ */
+export class TooManyRequestsError extends AppError {
+  readonly code = "RATE_LIMITED" as const;
+  readonly httpStatus = 429;
+  override readonly retryable = true;
 }
 
 /** Внешняя система не ответила или ответила ошибкой — повтор осмыслен. */

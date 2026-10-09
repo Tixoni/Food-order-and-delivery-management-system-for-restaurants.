@@ -23,12 +23,14 @@ export interface MenuItemProps {
   name: string;
   description?: string | null;
   composition?: string | null;
+  imageUrl?: string | null;
   /** Базовая цена в копейках, без модификаторов. */
   price: Kopecks;
   weightGrams?: number | null;
   calories?: number | null;
   /** Ложь означает стоп-лист: блюдо временно нельзя заказать. */
   isAvailable: boolean;
+  isDeleted?: boolean;
   sortOrder: number;
   optionGroups?: OptionGroup[];
 }
@@ -64,10 +66,12 @@ export class MenuItem {
     readonly name: string,
     readonly description: string | null,
     readonly composition: string | null,
+    readonly imageUrl: string | null,
     readonly price: Kopecks,
     readonly weightGrams: number | null,
     readonly calories: number | null,
     readonly isAvailable: boolean,
+    readonly isDeleted: boolean,
     readonly sortOrder: number,
     readonly optionGroups: readonly OptionGroup[],
   ) {}
@@ -82,6 +86,12 @@ export class MenuItem {
       throw new MenuItemError(`название блюда длиннее ${MAX_NAME} символов`);
     }
     assertMoney(props.price, `блюдо «${name}»`);
+    const imageUrl = props.imageUrl?.trim() || null;
+    if (imageUrl && (imageUrl.length > 500 || !/^https?:\/\//i.test(imageUrl))) {
+      throw new MenuItemError(
+        `блюдо «${name}»: адрес изображения должен быть HTTP(S) и не длиннее 500 символов`,
+      );
+    }
 
     if (
       props.weightGrams != null &&
@@ -107,10 +117,12 @@ export class MenuItem {
       name,
       props.description?.trim() || null,
       props.composition?.trim() || null,
+      imageUrl,
       props.price,
       props.weightGrams ?? null,
       props.calories ?? null,
       props.isAvailable,
+      props.isDeleted ?? false,
       props.sortOrder,
       Object.freeze([...groups]),
     );
@@ -118,7 +130,7 @@ export class MenuItem {
 
   /** Требование CAT-4: блюдо в стоп-листе заказать нельзя. */
   get isOrderable(): boolean {
-    return this.isAvailable;
+    return this.isAvailable && !this.isDeleted;
   }
 
   /** Перевод в стоп-лист и обратно — новое состояние, а не изменение текущего. */
@@ -128,6 +140,10 @@ export class MenuItem {
 
   withGroups(optionGroups: OptionGroup[]): MenuItem {
     return MenuItem.create({ ...this.toProps(), optionGroups });
+  }
+
+  archive(): MenuItem {
+    return MenuItem.create({ ...this.toProps(), isDeleted: true });
   }
 
   /**
@@ -210,10 +226,12 @@ export class MenuItem {
       name: this.name,
       description: this.description,
       composition: this.composition,
+      imageUrl: this.imageUrl,
       price: this.price,
       weightGrams: this.weightGrams,
       calories: this.calories,
       isAvailable: this.isAvailable,
+      isDeleted: this.isDeleted,
       sortOrder: this.sortOrder,
       optionGroups: [...this.optionGroups],
     };

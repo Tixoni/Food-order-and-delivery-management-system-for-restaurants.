@@ -1,0 +1,372 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+"""
+Результат перевода блюда в стоп-лист или обратно
+"""
+type AvailabilityResult {
+  """
+  Ложь означает, что блюдо уже было в этом состоянии
+  """
+  changed: Boolean!
+  isAvailable: Boolean!
+  itemId: ID!
+}
+
+"""
+Кто вошёл в систему
+"""
+type CurrentUserView {
+  email: String
+  id: ID!
+  name: String
+
+  """
+  Ресторан сотрудника
+  """
+  restaurantId: String
+
+  """
+  Роли: client, manager, kitchen, courier, operator, admin
+  """
+  roles: [String!]!
+}
+
+"""
+Зона доставки ресторана (ADM-1)
+"""
+type DeliveryZone {
+  """
+  Стоимость доставки по этой зоне, копейки
+  """
+  deliveryFee: Int!
+  id: ID!
+  isActive: Boolean!
+
+  """
+  Минимальная сумма заказа по этой зоне, копейки
+  """
+  minOrderAmount: Int!
+  name: String!
+  restaurantId: ID!
+
+  """
+  Замкнутый контур области
+  """
+  ring: [ZonePoint!]!
+}
+
+"""
+Зона доставки, в которую попал адрес клиента
+"""
+type DeliveryZoneRef {
+  id: ID!
+  name: String!
+}
+
+"""
+Вариант модификатора: размер, добавка
+"""
+type ItemOption {
+  id: ID!
+  isAvailable: Boolean!
+  name: String!
+
+  """
+  Надбавка к цене блюда, копейки; может быть отрицательной
+  """
+  priceDelta: Int!
+}
+
+"""
+Меню ресторана, сгруппированное по категориям (CAT-2)
+"""
+type Menu {
+  categories: [MenuSection!]!
+  restaurantId: ID!
+}
+
+"""
+Блюдо меню
+"""
+type MenuItem {
+  calories: Int
+  categoryId: ID!
+  composition: String
+  description: String
+  id: ID!
+
+  """
+  Ложь означает стоп-лист (CAT-4)
+  """
+  isAvailable: Boolean!
+  name: String!
+  optionGroups: [OptionGroup!]!
+
+  """
+  Цена без модификаторов, копейки
+  """
+  price: Int!
+  weightGrams: Int
+}
+
+"""
+Раздел меню: категория и её блюда
+"""
+type MenuSection {
+  id: ID!
+  items: [MenuItem!]!
+  name: String!
+}
+
+type Mutation {
+  """
+  Зарегистрировать ресторан (ADM-2)
+  """
+  registerRestaurant(input: RegisterRestaurantInput!): RestaurantDetails!
+
+  """
+  Создать или изменить зону доставки (ADM-1)
+  """
+  saveDeliveryZone(input: SaveDeliveryZoneInput!): DeliveryZone!
+
+  """
+  Создать или изменить блюдо (CAT-5)
+  """
+  saveMenuItem(input: SaveMenuItemInput!): MenuItem!
+
+  """
+  Убрать блюдо из продажи или вернуть (CAT-4)
+  """
+  setMenuItemAvailability(
+    isAvailable: Boolean!
+    itemId: ID!
+    reason: String
+    restaurantId: ID!
+  ): AvailabilityResult!
+
+  """
+  Изменить сведения о ресторане (ADM-2)
+  """
+  updateRestaurant(
+    input: RegisterRestaurantInput!
+    isActive: Boolean
+    restaurantId: ID!
+  ): RestaurantDetails!
+}
+
+"""
+Группа модификаторов блюда (CAT-3)
+"""
+type OptionGroup {
+  id: ID!
+  isRequired: Boolean!
+  maxSelect: Int!
+  minSelect: Int!
+  name: String!
+  options: [ItemOption!]!
+  selectionType: SelectionType!
+}
+
+type Query {
+  """
+  Зоны доставки ресторана (ADM-1)
+  """
+  deliveryZones(restaurantId: ID!): [DeliveryZone!]!
+
+  """
+  Кто вошёл в систему
+  """
+  me: CurrentUserView
+
+  """
+  Меню ресторана, сгруппированное по категориям (CAT-2)
+  """
+  menu(includeUnavailable: Boolean! = false, restaurantId: ID!): Menu!
+
+  """
+  Список действующих ресторанов
+  """
+  restaurants(page: Int! = 1, pageSize: Int! = 20): RestaurantPage!
+
+  """
+  Рестораны, доставляющие по адресу (CAT-1)
+  """
+  restaurantsNearby(latitude: Float!, limit: Int! = 50, longitude: Float!): [RestaurantOffer!]!
+
+  """
+  История стоп-листа ресторана
+  """
+  stopList(limit: Int! = 50, restaurantId: ID!): [StopListEntry!]!
+}
+
+"""
+Регистрация ресторана администратором (ADM-2)
+"""
+input RegisterRestaurantInput {
+  addressText: String
+  avgCookingTimeMin: Int
+  deliveryFeeBase: Int
+  description: String
+  location: ZonePointInput
+  minOrderAmount: Int
+  name: String!
+  phone: String
+}
+
+"""
+Ресторан в списке
+"""
+type Restaurant {
+  """
+  Среднее время приготовления, минуты
+  """
+  avgCookingTimeMin: Int!
+
+  """
+  Стоимость доставки, копейки
+  """
+  deliveryFee: Int!
+  id: ID!
+
+  """
+  Минимальная сумма заказа, копейки
+  """
+  minOrderAmount: Int!
+  name: String!
+}
+
+"""
+Полные сведения о ресторане — для администратора
+"""
+type RestaurantDetails {
+  addressText: String
+  avgCookingTimeMin: Int!
+  deliveryFee: Int!
+  description: String
+  id: ID!
+  isActive: Boolean!
+
+  """
+  Где находится ресторан
+  """
+  location: ZonePoint
+  minOrderAmount: Int!
+  name: String!
+  phone: String
+}
+
+"""
+Ресторан, доставляющий по указанному адресу (CAT-1)
+"""
+type RestaurantOffer {
+  """
+  Среднее время приготовления, минуты
+  """
+  avgCookingTimeMin: Int!
+
+  """
+  Стоимость доставки, копейки
+  """
+  deliveryFee: Int!
+  id: ID!
+
+  """
+  Минимальная сумма заказа, копейки
+  """
+  minOrderAmount: Int!
+  name: String!
+  zone: DeliveryZoneRef!
+}
+
+"""
+Страница списка ресторанов
+"""
+type RestaurantPage {
+  items: [Restaurant!]!
+  page: Int!
+  pageSize: Int!
+  total: Int!
+}
+
+"""
+Сохранение зоны доставки: без id создаётся новая
+"""
+input SaveDeliveryZoneInput {
+  deliveryFee: Int
+  id: ID
+  isActive: Boolean
+  minOrderAmount: Int
+  name: String
+  restaurantId: ID!
+  ring: [ZonePointInput!]
+}
+
+"""
+Сохранение блюда: без id создаётся новое (CAT-5)
+"""
+input SaveMenuItemInput {
+  calories: Int
+  categoryId: ID
+  composition: String
+  description: String
+  id: ID
+  name: String
+
+  """
+  Цена в копейках
+  """
+  price: Int
+  restaurantId: ID!
+  weightGrams: Int
+}
+
+"""
+single — выбрать ровно один вариант, multiple — несколько
+"""
+enum SelectionType {
+  multiple
+  single
+}
+
+"""
+Запись журнала стоп-листа
+"""
+type StopListEntry {
+  id: ID!
+
+  """
+  Истина — блюдо всё ещё в стоп-листе
+  """
+  isActive: Boolean!
+  menuItemId: ID!
+
+  """
+  Сколько минут блюдо отсутствовало в продаже
+  """
+  outageMinutes: Int!
+  reason: String
+  restoredAt: String
+
+  """
+  Когда блюдо убрали из продажи
+  """
+  stoppedAt: String!
+}
+
+"""
+Точка контура зоны доставки
+"""
+type ZonePoint {
+  latitude: Float!
+  longitude: Float!
+}
+
+"""
+Точка контура, пришедшая из редактора карты
+"""
+input ZonePointInput {
+  latitude: Float!
+  longitude: Float!
+}

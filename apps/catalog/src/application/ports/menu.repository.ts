@@ -1,3 +1,4 @@
+import type { DomainEvent } from "@food-delivery/shared";
 import type { MenuCategory } from "../../domain/menu-category";
 import type { MenuItem } from "../../domain/menu-item";
 
@@ -18,7 +19,13 @@ export interface MenuRepository {
 
   findItemById(itemId: string): Promise<MenuItem | null>;
 
-  saveItem(item: MenuItem): Promise<void>;
+  /**
+   * Сохраняет блюдо и, если они переданы, исходящие события — одной
+   * транзакцией. События нужны потребителям кэша: без них шлюз продолжит
+   * отдавать старую цену. Отдельный вызов «сохранить событие» здесь
+   * не годится — между ним и сохранением блюда возможен сбой (REL-3).
+   */
+  saveItem(item: MenuItem, events?: DomainEvent[]): Promise<void>;
 
   saveCategory(category: MenuCategory): Promise<void>;
 

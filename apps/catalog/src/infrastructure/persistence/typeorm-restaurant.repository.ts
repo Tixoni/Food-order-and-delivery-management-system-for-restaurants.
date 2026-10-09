@@ -1,10 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { InjectDataSource } from "@nestjs/typeorm";
+import { DataSource, Repository } from "typeorm";
+import type { DomainEvent } from "@food-delivery/shared";
 import type { Restaurant } from "../../domain/restaurant";
 import type { RestaurantRepository } from "../../application/ports/restaurant.repository";
 import { RestaurantOrmEntity } from "./restaurant.orm-entity";
 import { RestaurantMapper } from "./restaurant.mapper";
+import { writeOutbox } from "./outbox.writer";
 
 /**
  * Реализация порта поверх PostgreSQL. Инфраструктурный слой —
@@ -15,6 +18,7 @@ export class TypeOrmRestaurantRepository implements RestaurantRepository {
   constructor(
     @InjectRepository(RestaurantOrmEntity)
     private readonly repository: Repository<RestaurantOrmEntity>,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   async findActive(limit: number, offset: number): Promise<Restaurant[]> {
@@ -34,5 +38,20 @@ export class TypeOrmRestaurantRepository implements RestaurantRepository {
 
   async countActive(): Promise<number> {
     return this.repository.count({ where: { isActive: true } });
+  }
+
+  async save(restaurant: Restaurant, events: readonly DomainEvent[] = []): Promise<void> {
+    // upsert, а не save: save сначала делает выборку, чтобы решить,
+    // вставка это или обновление, — лишний запрос на каждое сохранение.
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(RestaurantOrmEntity).upsert(
+        {
+          ...RestaurantMapper.toPersistence(restaurant),
+          updatedAt: new Date(),
+        } as RestaurantOrmEntity,
+        ["id"],
+      );
+      await writeOutbox(manager, events);
+    });
   }
 }

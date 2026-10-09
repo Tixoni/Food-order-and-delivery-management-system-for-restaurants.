@@ -1,111 +1,16 @@
 import { ConflictError, DomainRuleError, NotFoundError } from "@food-delivery/shared";
-import { MenuCategory } from "../../domain/menu-category";
-import { MenuItem } from "../../domain/menu-item";
-import { ItemOption, OptionGroup } from "../../domain/option-group";
-import { Restaurant } from "../../domain/restaurant";
-import type { MenuRepository } from "../ports/menu.repository";
-import type { RestaurantRepository } from "../ports/restaurant.repository";
 import { GetRestaurantMenuUseCase } from "./get-restaurant-menu.use-case";
 import { ManageMenuItemUseCase } from "./manage-menu-item.use-case";
 import { PriceMenuItemUseCase } from "./price-menu-item.use-case";
-
-/**
- * Хранилища в памяти вместо PostgreSQL. Ровно то, ради чего вводились порты:
- * сценарии проверяются без базы, контейнеров и сети — за миллисекунды.
- */
-class InMemoryMenuRepository implements MenuRepository {
-  constructor(
-    public categories: MenuCategory[] = [],
-    public items: MenuItem[] = [],
-  ) {}
-
-  async findCategories(restaurantId: string) {
-    return this.categories.filter((c) => c.restaurantId === restaurantId);
-  }
-
-  async findItems(restaurantId: string, options?: { includeUnavailable?: boolean }) {
-    return this.items.filter(
-      (i) => i.restaurantId === restaurantId && (options?.includeUnavailable || i.isAvailable),
-    );
-  }
-
-  async findItemById(itemId: string) {
-    return this.items.find((i) => i.id === itemId) ?? null;
-  }
-
-  async saveItem(item: MenuItem) {
-    const index = this.items.findIndex((i) => i.id === item.id);
-    if (index >= 0) this.items[index] = item;
-    else this.items.push(item);
-  }
-
-  async saveCategory(category: MenuCategory) {
-    const index = this.categories.findIndex((c) => c.id === category.id);
-    if (index >= 0) this.categories[index] = category;
-    else this.categories.push(category);
-  }
-
-  async categoryExists(categoryId: string, restaurantId: string) {
-    return this.categories.some((c) => c.id === categoryId && c.restaurantId === restaurantId);
-  }
-}
-
-class InMemoryRestaurantRepository implements RestaurantRepository {
-  constructor(private readonly items: Restaurant[] = []) {}
-  async findActive(limit: number, offset: number) {
-    return this.items.filter((r) => r.isActive).slice(offset, offset + limit);
-  }
-  async findById(id: string) {
-    return this.items.find((r) => r.id === id) ?? null;
-  }
-  async countActive() {
-    return this.items.filter((r) => r.isActive).length;
-  }
-}
-
-const restaurant = (id = "r-1") =>
-  Restaurant.create({
-    id,
-    name: `Ресторан ${id}`,
-    minOrderAmount: 50000,
-    deliveryFeeBase: 14900,
-    avgCookingTimeMin: 25,
-    isActive: true,
-  });
-
-const category = (id: string, name: string, sortOrder = 0, restaurantId = "r-1") =>
-  MenuCategory.create({ id, restaurantId, name, sortOrder, isActive: true });
-
-const sizeGroup = () =>
-  OptionGroup.create({
-    id: "g-size",
-    name: "Размер",
-    selectionType: "single",
-    isRequired: true,
-    minSelect: 1,
-    maxSelect: 1,
-    options: [
-      ItemOption.create({ id: "o-medium", name: "Средний", priceDelta: 0, isAvailable: true }),
-      ItemOption.create({ id: "o-large", name: "Большой", priceDelta: 9000, isAvailable: true }),
-    ],
-  });
-
-const item = (
-  id: string,
-  categoryId: string,
-  name: string,
-  overrides: Partial<Parameters<typeof MenuItem.create>[0]> = {},
-) =>
-  MenuItem.create({
-    id,
-    restaurantId: "r-1",
-    categoryId,
-    name,
-    price: 39000,
-    isAvailable: true,
-    sortOrder: 0,
-    ...overrides,
-  });
+import {
+  InMemoryMenuCache,
+  InMemoryMenuRepository,
+  InMemoryRestaurantRepository,
+  category,
+  item,
+  restaurant,
+  sizeGroup,
+} from "./in-memory.doubles";
 
 describe("сценарий «меню ресторана»", () => {
   const build = () => {
@@ -118,7 +23,8 @@ describe("сценарий «меню ресторана»", () => {
       ],
     );
     const restaurants = new InMemoryRestaurantRepository([restaurant()]);
-    return { menu, useCase: new GetRestaurantMenuUseCase(menu, restaurants) };
+    const cache = new InMemoryMenuCache();
+    return { menu, cache, useCase: new GetRestaurantMenuUseCase(menu, restaurants, cache) };
   };
 
   it("группирует блюда по категориям и соблюдает порядок", async () => {
@@ -147,11 +53,41 @@ describe("сценарий «меню ресторана»", () => {
     await expect(build().useCase.execute({ restaurantId: "r-404" })).rejects.toThrow(NotFoundError);
   });
 
+  it("повторное чтение берёт меню из кэша, не обращаясь к базе", async () => {
+    const { menu, cache, useCase } = build();
+
+    await useCase.execute({ restaurantId: "r-1" });
+    menu.items = [];
+    const second = await useCase.execute({ restaurantId: "r-1" });
+
+    expect(cache.writes).toBe(1);
+    expect(second[0].items.map((i) => i.name)).toEqual(["Маргарита"]);
+  });
+
+  it("клиентское меню и меню менеджера кэшируются раздельно", async () => {
+    const { cache, useCase } = build();
+
+    await useCase.execute({ restaurantId: "r-1" });
+    const forManager = await useCase.execute({ restaurantId: "r-1", includeUnavailable: true });
+
+    expect(cache.writes).toBe(2);
+    expect(forManager[0].items.map((i) => i.name)).toEqual(["Маргарита", "Пепперони"]);
+  });
+
+  it("несуществующий ресторан остаётся ошибкой и при заполненном кэше", async () => {
+    const { useCase } = build();
+
+    await useCase.execute({ restaurantId: "r-1" });
+
+    await expect(useCase.execute({ restaurantId: "r-404" })).rejects.toThrow(NotFoundError);
+  });
+
   it("у ресторана без меню возвращает пустой список, а не ошибку", async () => {
     const menu = new InMemoryMenuRepository([], []);
     const useCase = new GetRestaurantMenuUseCase(
       menu,
       new InMemoryRestaurantRepository([restaurant()]),
+      new InMemoryMenuCache(),
     );
 
     await expect(useCase.execute({ restaurantId: "r-1" })).resolves.toEqual([]);
@@ -165,10 +101,22 @@ describe("сценарий «управление блюдом»", () => {
       [item("i-1", "c-1", "Маргарита")],
     );
     const restaurants = new InMemoryRestaurantRepository([restaurant("r-1"), restaurant("r-2")]);
-    return { menu, useCase: new ManageMenuItemUseCase(menu, restaurants) };
+    const cache = new InMemoryMenuCache();
+    return { menu, cache, useCase: new ManageMenuItemUseCase(menu, restaurants, cache) };
   };
 
   describe("создание", () => {
+    it("сохраняет адрес изображения в блюде", async () => {
+      const { useCase } = build();
+      const created = await useCase.create({
+        restaurantId: "r-1",
+        categoryId: "c-1",
+        name: "Сырная",
+        price: 30000,
+        imageUrl: "https://example.org/pizza.jpg",
+      });
+      expect(created.imageUrl).toBe("https://example.org/pizza.jpg");
+    });
     it("создаёт блюдо и сохраняет его", async () => {
       const { menu, useCase } = build();
 
@@ -182,6 +130,20 @@ describe("сценарий «управление блюдом»", () => {
       expect(created.name).toBe("Четыре сыра");
       expect(created.isAvailable).toBe(true);
       expect(await menu.findItemById(created.id)).not.toBeNull();
+    });
+
+    it("сообщает об изменении меню событием и сбрасывает кэш", async () => {
+      const { menu, cache, useCase } = build();
+
+      await useCase.create({
+        restaurantId: "r-1",
+        categoryId: "c-1",
+        name: "Четыре сыра",
+        price: 52000,
+      });
+
+      expect(menu.published.map((e) => e.eventType)).toEqual(["MenuUpdated"]);
+      expect(cache.invalidations).toBe(1);
     });
 
     it("выдаёт новому блюду собственный идентификатор", async () => {
@@ -259,6 +221,26 @@ describe("сценарий «управление блюдом»", () => {
       expect((await menu.findItemById("i-1"))?.name).toBe("Маргарита особая");
     });
 
+    it("сообщает об изменении меню событием и сбрасывает кэш", async () => {
+      const { menu, cache, useCase } = build();
+
+      await useCase.update({ itemId: "i-1", restaurantId: "r-1", price: 45000 });
+
+      expect(menu.published.map((e) => e.eventType)).toEqual(["MenuUpdated"]);
+      expect(cache.invalidations).toBe(1);
+    });
+
+    it("отклонённое изменение не порождает события и не трогает кэш", async () => {
+      const { menu, cache, useCase } = build();
+
+      await expect(
+        useCase.update({ itemId: "i-1", restaurantId: "r-2", price: 1000 }),
+      ).rejects.toThrow(ConflictError);
+
+      expect(menu.published).toHaveLength(0);
+      expect(cache.invalidations).toBe(0);
+    });
+
     it("сообщает, что блюдо не найдено", async () => {
       await expect(
         build().useCase.update({ itemId: "i-404", restaurantId: "r-1", price: 1000 }),
@@ -282,6 +264,19 @@ describe("сценарий «управление блюдом»", () => {
         build().useCase.update({ itemId: "i-1", restaurantId: "r-1", name: "   " }),
       ).rejects.toThrow(DomainRuleError);
     });
+  });
+
+  it("архивирует блюдо, скрывает его из меню и публикует событие", async () => {
+    const { menu, cache, useCase } = build();
+    await useCase.remove("i-1", "r-1");
+    expect(await menu.findItemById("i-1")).toBeNull();
+    expect(await menu.findItems("r-1", { includeUnavailable: true })).toHaveLength(0);
+    expect(menu.published[0].payload).toMatchObject({ change: "deleted" });
+    expect(cache.invalidations).toBe(1);
+  });
+
+  it("не позволяет удалить блюдо чужого ресторана", async () => {
+    await expect(build().useCase.remove("i-1", "r-2")).rejects.toThrow(ConflictError);
   });
 });
 

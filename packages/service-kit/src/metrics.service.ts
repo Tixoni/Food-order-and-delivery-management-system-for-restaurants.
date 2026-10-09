@@ -15,6 +15,7 @@ export class MetricsService {
 
   readonly httpRequests: Counter<"method" | "route" | "status">;
   readonly httpDuration: Histogram<"method" | "route" | "status">;
+  readonly cacheReads: Counter<"cache" | "result">;
 
   constructor(@Inject(SERVICE_NAME) serviceName: string) {
     this.registry.setDefaultLabels({ service: serviceName });
@@ -32,6 +33,13 @@ export class MetricsService {
       help: "Длительность обработки запроса",
       labelNames: ["method", "route", "status"] as const,
       buckets: [0.005, 0.01, 0.05, 0.1, 0.3, 0.5, 1, 3],
+      registers: [this.registry],
+    });
+
+    this.cacheReads = new Counter({
+      name: "cache_reads_total",
+      help: "Cache reads by cache and outcome (hit, miss, error)",
+      labelNames: ["cache", "result"] as const,
       registers: [this.registry],
     });
   }

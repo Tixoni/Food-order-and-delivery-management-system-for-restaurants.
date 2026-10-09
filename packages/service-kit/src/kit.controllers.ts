@@ -7,6 +7,7 @@ import {
   Inject,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { Public } from "./auth/auth.decorators";
 import { MetricsService } from "./metrics.service";
 import { READINESS_CHECKS, SERVICE_NAME, type ReadinessCheck } from "./readiness";
 
@@ -21,7 +22,13 @@ import { READINESS_CHECKS, SERVICE_NAME, type ReadinessCheck } from "./readiness
  *
  * Если их не разделить, сервис с оборванным соединением к базе будет
  * считаться исправным и начнёт отвечать ошибками на каждый запрос.
+ *
+ * Обе проверки открыты без входа, и иначе быть не может: их спрашивает
+ * не человек, а оркестратор и балансировщик, у которых нет и не должно
+ * быть учётной записи. Закрытая проверка работоспособности означала бы,
+ * что контейнер считается неисправным и перезапускается по кругу.
  */
+@Public()
 @Controller()
 export class HealthController {
   constructor(
@@ -60,6 +67,12 @@ export class HealthController {
   }
 }
 
+/**
+ * Показатели тоже отдаются без входа: их собирает служебный сборщик.
+ * Наружу этот адрес не публикуется — доступ к нему ограничивается
+ * на уровне сети, а не проверкой токена.
+ */
+@Public()
 @Controller("metrics")
 export class MetricsController {
   constructor(private readonly metrics: MetricsService) {}

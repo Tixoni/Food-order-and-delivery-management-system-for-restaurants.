@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { ConflictError, DomainRuleError, NotFoundError } from "@food-delivery/shared";
+import {
+  ConflictError,
+  DomainRuleError,
+  NotFoundError,
+  createEvent,
+  getCorrelationId,
+} from "@food-delivery/shared";
+import { CATALOG_EVENT_TYPES } from "@food-delivery/contracts";
+import type { DomainEvent } from "@food-delivery/shared";
+import type { MenuUpdatedPayload } from "@food-delivery/contracts";
 import { MenuItem, MenuItemError } from "../../domain/menu-item";
+import { MENU_CACHE, type MenuCache } from "../ports/menu-cache";
 import { MENU_REPOSITORY, type MenuRepository } from "../ports/menu.repository";
 import { RESTAURANT_REPOSITORY, type RestaurantRepository } from "../ports/restaurant.repository";
 
@@ -20,6 +30,7 @@ export interface CreateMenuItemInput {
   price: number;
   description?: string | null;
   composition?: string | null;
+  imageUrl?: string | null;
   weightGrams?: number | null;
   calories?: number | null;
   sortOrder?: number;
@@ -32,6 +43,7 @@ export interface UpdateMenuItemInput {
   price?: number;
   description?: string | null;
   composition?: string | null;
+  imageUrl?: string | null;
   weightGrams?: number | null;
   calories?: number | null;
   sortOrder?: number;
@@ -43,6 +55,7 @@ export class ManageMenuItemUseCase {
   constructor(
     @Inject(MENU_REPOSITORY) private readonly menu: MenuRepository,
     @Inject(RESTAURANT_REPOSITORY) private readonly restaurants: RestaurantRepository,
+    @Inject(MENU_CACHE) private readonly cache: MenuCache,
   ) {}
 
   async create(input: CreateMenuItemInput): Promise<MenuItem> {
@@ -57,6 +70,7 @@ export class ManageMenuItemUseCase {
         name: input.name,
         description: input.description ?? null,
         composition: input.composition ?? null,
+        imageUrl: input.imageUrl ?? null,
         price: input.price,
         weightGrams: input.weightGrams ?? null,
         calories: input.calories ?? null,
@@ -65,7 +79,8 @@ export class ManageMenuItemUseCase {
       }),
     );
 
-    await this.menu.saveItem(item);
+    await this.menu.saveItem(item, [this.menuUpdated(item, "created")]);
+    await this.cache.invalidate(item.restaurantId);
     return item;
   }
 
@@ -98,14 +113,52 @@ export class ManageMenuItemUseCase {
         ...(input.price !== undefined ? { price: input.price } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.composition !== undefined ? { composition: input.composition } : {}),
+        ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
         ...(input.weightGrams !== undefined ? { weightGrams: input.weightGrams } : {}),
         ...(input.calories !== undefined ? { calories: input.calories } : {}),
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
       }),
     );
 
-    await this.menu.saveItem(updated);
+    await this.menu.saveItem(updated, [this.menuUpdated(updated, "updated")]);
+    await this.cache.invalidate(updated.restaurantId);
     return updated;
+  }
+
+  async remove(itemId: string, restaurantId: string): Promise<void> {
+    const existing = await this.menu.findItemById(itemId);
+    if (!existing) {
+      throw new NotFoundError("блюдо не найдено", { itemId });
+    }
+    if (existing.restaurantId !== restaurantId) {
+      throw new ConflictError("блюдо принадлежит другому ресторану", { itemId });
+    }
+
+    const archived = existing.archive();
+    await this.menu.saveItem(archived, [this.menuUpdated(archived, "deleted")]);
+    await this.cache.invalidate(restaurantId);
+  }
+
+  /**
+   * Изменение меню касается не только каталога: шлюз держит кэш выдачи,
+   * и без события клиент продолжит видеть старую цену. Событие пишется
+   * той же транзакцией, что и само блюдо (REL-3).
+   */
+  private menuUpdated(item: MenuItem, change: MenuUpdatedPayload["change"]): DomainEvent {
+    const payload: MenuUpdatedPayload = {
+      restaurantId: item.restaurantId,
+      menuItemId: item.id,
+      name: item.name,
+      change,
+    };
+
+    return createEvent({
+      eventType: CATALOG_EVENT_TYPES.menuUpdated,
+      aggregateType: "MenuItem",
+      aggregateId: item.id,
+      correlationId: getCorrelationId(),
+      payload,
+    });
   }
 
   private async ensureRestaurantExists(restaurantId: string): Promise<void> {

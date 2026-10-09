@@ -124,6 +124,9 @@ export class MenuItemOrmEntity {
   @Column("boolean", { name: "is_available", default: true })
   isAvailable!: boolean;
 
+  @Column("boolean", { name: "is_deleted", default: false })
+  isDeleted!: boolean;
+
   @Column("integer", { name: "sort_order", default: 0 })
   sortOrder!: number;
 
