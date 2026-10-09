@@ -33,6 +33,15 @@ const DATABASES = [
   { database: process.env.DELIVERY_DB ?? "delivery_db", folder: "delivery" },
 ];
 
+// Проверка одного сервиса не должна менять схемы остальных баз.
+const selectedService = process.env.MIGRATION_SERVICE;
+if (selectedService && !DATABASES.some((target) => target.folder === selectedService)) {
+  throw new Error(`Неизвестный сервис для миграции: ${selectedService}`);
+}
+const targets = selectedService
+  ? DATABASES.filter((target) => target.folder === selectedService)
+  : DATABASES;
+
 const TRACKING_TABLE = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
     filename   TEXT PRIMARY KEY,
@@ -91,7 +100,7 @@ async function migrate({ database, folder }) {
 console.log(`Применение миграций (${CONNECTION.host}:${CONNECTION.port})`);
 
 let failed = false;
-for (const target of DATABASES) {
+for (const target of targets) {
   try {
     await migrate(target);
   } catch (error) {
