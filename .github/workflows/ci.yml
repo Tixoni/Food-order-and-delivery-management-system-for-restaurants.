@@ -145,6 +145,11 @@ jobs:
           PGPASSWORD=app psql -h localhost -U app -d app -c "CREATE DATABASE order_verify_db"
           PGPASSWORD=app psql -h localhost -U app -d order_verify_db -c "CREATE EXTENSION IF NOT EXISTS postgis"
           npm run db:migrate
+          # Типы общих пакетов берутся из их сборки (dist): без неё проверка
+          # типов в тестах не находит @food-delivery/contracts.
+          npm run build -w @food-delivery/shared
+          npm run build -w @food-delivery/contracts
+          npm run build -w @food-delivery/service-kit
           npm test -w @food-delivery/order -- order.integration
 
       - name: Проверка географического запроса
@@ -176,6 +181,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # Кэш слоёв в GitHub Actions (type=gha) поддерживает только сборщик buildx;
+      # стандартный драйвер Docker отказывается экспортировать кэш, и сборка падает.
+      - name: Подготовка сборщика образов
+        uses: docker/setup-buildx-action@v3
 
       - name: Сборка образа ${{ matrix.service }}
         uses: docker/build-push-action@v6
