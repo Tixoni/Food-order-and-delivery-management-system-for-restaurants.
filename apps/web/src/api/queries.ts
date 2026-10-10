@@ -221,6 +221,110 @@ export const UPDATE_RESTAURANT = gql`
   }
 `;
 
+export const RESTAURANT = gql`
+  query Restaurant($id: ID!) {
+    restaurant(id: $id) {
+      id
+      name
+      minOrderAmount
+      deliveryFee
+      avgCookingTimeMin
+    }
+  }
+`;
+
+/* ─────────────── Заказы клиента ─────────────── */
+
+const ORDER_FIELDS = gql`
+  fragment OrderFields on Order {
+    id
+    orderNumber
+    status
+    restaurantId
+    restaurant {
+      id
+      name
+    }
+    addressText
+    comment
+    amounts {
+      items
+      delivery
+      service
+      discount
+      total
+    }
+    lines {
+      menuItemId
+      name
+      quantity
+      unitPrice
+      lineTotal
+      options {
+        optionId
+        name
+        priceDelta
+      }
+    }
+    expectedCookingMin
+    placedAt
+    confirmedAt
+    readyAt
+    pickedUpAt
+    deliveredAt
+    cancelledAt
+    cancelReason
+    cancelComment
+    canCancel
+  }
+`;
+
+export const PLACE_ORDER = gql`
+  ${ORDER_FIELDS}
+  mutation PlaceOrder($input: PlaceOrderInput!) {
+    placeOrder(input: $input) {
+      replayed
+      order {
+        ...OrderFields
+      }
+    }
+  }
+`;
+
+export const MY_ORDERS = gql`
+  ${ORDER_FIELDS}
+  query MyOrders($limit: Int!, $offset: Int!) {
+    myOrders(limit: $limit, offset: $offset) {
+      ...OrderFields
+    }
+  }
+`;
+
+export const ORDER = gql`
+  ${ORDER_FIELDS}
+  query Order($id: ID!) {
+    order(id: $id) {
+      ...OrderFields
+    }
+    orderTransitions(id: $id) {
+      from
+      to
+      actorType
+      reason
+      at
+    }
+  }
+`;
+
+export const CANCEL_ORDER = gql`
+  ${ORDER_FIELDS}
+  mutation CancelOrder($id: ID!, $reason: String) {
+    cancelOrder(id: $id, reason: $reason) {
+      ...OrderFields
+    }
+  }
+`;
+
 /* ─────────────── Типы ответов ─────────────── */
 
 export interface RestaurantSummary {
@@ -308,4 +412,43 @@ export interface RestaurantDetails {
   minOrderAmount: number;
   deliveryFee: number;
   isActive: boolean;
+}
+
+export interface OrderLine {
+  menuItemId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  options: Array<{ optionId: string; name: string; priceDelta: number }>;
+}
+
+export interface Order {
+  id: string;
+  orderNumber: number;
+  status: string;
+  restaurantId: string;
+  restaurant: { id: string; name: string } | null;
+  addressText: string;
+  comment: string | null;
+  amounts: { items: number; delivery: number; service: number; discount: number; total: number };
+  lines: OrderLine[];
+  expectedCookingMin: number | null;
+  placedAt: string;
+  confirmedAt: string | null;
+  readyAt: string | null;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  cancelComment: string | null;
+  canCancel: boolean;
+}
+
+export interface OrderTransition {
+  from: string | null;
+  to: string;
+  actorType: string;
+  reason: string | null;
+  at: string;
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { call, useSession, type SessionUser } from "../auth/session";
 
 /** Куда вести после входа: сотрудника — сразу в его раздел, клиента — на витрину. */
@@ -20,12 +20,14 @@ function homeOf(user: SessionUser): string {
 export function LoginPage() {
   const { user, login, error, errorReason } = useSession();
   const [params] = useSearchParams();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from;
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [resent, setResent] = useState(false);
 
-  if (user) return <Navigate to={homeOf(user)} replace />;
+  if (user) return <Navigate to={from ?? homeOf(user)} replace />;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

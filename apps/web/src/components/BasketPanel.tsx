@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useBasket } from "../cart/basket";
 import { formatMoney } from "./money";
 
@@ -96,7 +97,9 @@ export function BasketPanel({ terms }: Props) {
         </p>
       )}
       {terms && shortfall === 0 && (
-        <p className="notice notice--ok">Минимальная сумма заказа набрана.</p>
+        <Link to="/checkout" className="button basket__checkout">
+          Оформить заказ
+        </Link>
       )}
     </aside>
   );

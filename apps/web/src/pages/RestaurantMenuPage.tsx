@@ -4,7 +4,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { errorText } from "../api/client";
 import {
   MENU,
-  RESTAURANTS,
+  RESTAURANT,
   RESTAURANTS_NEARBY,
   type MenuItem,
   type MenuSection,
@@ -43,24 +43,27 @@ function matches(item: MenuItem, filter: string): boolean {
     .every((word) => haystack.includes(word));
 }
 
-/** Сведения о ресторане: из перехода с витрины, иначе — из выдачи по адресу или общего списка. */
+/** Сведения о ресторане: из перехода с витрины, иначе — из выдачи по адресу или из каталога. */
 function useRestaurant(restaurantId: string, fromLink: RestaurantSummary | undefined) {
   const address = loadAddress();
   const nearby = useQuery<{ restaurantsNearby: RestaurantSummary[] }>(RESTAURANTS_NEARBY, {
     variables: { latitude: address?.latitude ?? 0, longitude: address?.longitude ?? 0 },
     skip: !!fromLink || !address,
   });
-  const listed = useQuery<{ restaurants: { items: RestaurantSummary[] } }>(RESTAURANTS, {
-    // Каталог отдаёт не больше 50 ресторанов за раз; для прототипа
-    // этого достаточно, чтобы найти название по прямой ссылке.
-    variables: { page: 1, pageSize: 50 },
-    skip: !!fromLink || !!nearby.data?.restaurantsNearby.some((r) => r.id === restaurantId),
+  // Прямая ссылка без адреса или ресторан вне зоны адреса: условия зоны
+  // неизвестны, но название и время готовки — из каталога.
+  const single = useQuery<{ restaurant: RestaurantSummary | null }>(RESTAURANT, {
+    variables: { id: restaurantId },
+    skip:
+      !!fromLink ||
+      nearby.loading ||
+      !!nearby.data?.restaurantsNearby.some((r) => r.id === restaurantId),
   });
 
   return (
     fromLink ??
     nearby.data?.restaurantsNearby.find((restaurant) => restaurant.id === restaurantId) ??
-    listed.data?.restaurants.items.find((restaurant) => restaurant.id === restaurantId) ??
+    single.data?.restaurant ??
     null
   );
 }

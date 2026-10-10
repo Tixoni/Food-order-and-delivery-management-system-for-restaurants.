@@ -1,10 +1,13 @@
-import { Suspense, lazy } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { Suspense, lazy, useEffect } from "react";
+import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useSession } from "./auth/session";
 import { StorefrontPage } from "./pages/StorefrontPage";
 import { RestaurantMenuPage } from "./pages/RestaurantMenuPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { CheckoutPage } from "./pages/CheckoutPage";
+import { OrderPage } from "./pages/OrderPage";
+import { OrdersPage } from "./pages/OrdersPage";
 
 /*
  * Разделы сотрудников загружаются отдельно, по требованию: клиенту
@@ -35,6 +38,7 @@ const AdminRestaurantsPage = lazy(() =>
 
 function RequireRole({ roles, children }: { roles: string[]; children: JSX.Element }) {
   const { user, loading, hasRole } = useSession();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -45,7 +49,8 @@ function RequireRole({ roles, children }: { roles: string[]; children: JSX.Eleme
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // После входа — обратно туда, куда шли: в оформление, а не на витрину.
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
   if (!hasRole(...roles)) {
@@ -69,6 +74,19 @@ function RequireRole({ roles, children }: { roles: string[]; children: JSX.Eleme
   );
 }
 
+/**
+ * Новая страница открывается сверху. Маршрутизатор сам прокрутку
+ * не сбрасывает, и оформление заказа открывалось прокрученным туда,
+ * где клиент нажал «Оформить» в меню.
+ */
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 function Header() {
   const { user, logout, hasRole } = useSession();
 
@@ -80,6 +98,7 @@ function Header() {
 
       <nav className="header__nav">
         <NavLink to="/">Витрина</NavLink>
+        {hasRole("client") && <NavLink to="/orders">Мои заказы</NavLink>}
 
         {hasRole("manager", "kitchen", "admin") && <NavLink to="/manage/menu">Меню</NavLink>}
         {hasRole("manager", "admin") && <NavLink to="/manage/zone">Зона доставки</NavLink>}
@@ -103,6 +122,7 @@ function Header() {
 export function App() {
   return (
     <>
+      <ScrollToTop />
       <Header />
 
       <Routes>
@@ -110,6 +130,31 @@ export function App() {
         <Route path="/restaurants/:restaurantId" element={<RestaurantMenuPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+
+        <Route
+          path="/checkout"
+          element={
+            <RequireRole roles={["client"]}>
+              <CheckoutPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/orders"
+          element={
+            <RequireRole roles={["client"]}>
+              <OrdersPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/orders/:orderId"
+          element={
+            <RequireRole roles={["client"]}>
+              <OrderPage />
+            </RequireRole>
+          }
+        />
 
         <Route
           path="/manage/menu"
