@@ -167,7 +167,7 @@ export class KeycloakAdminClient implements AccountDirectory {
       }).toString(),
     });
     if (!response.ok) {
-      this.logger.error("служебное приложение шлюза не получило токен", {
+      this.logger.error("служебное приложение шлюза не получило токен", undefined, {
         status: response.status,
       });
       throw new ExternalServiceError("регистрация временно недоступна");
