@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@apollo/client";
 import { Link } from "react-router-dom";
 import { errorText } from "../api/client";
 import { RESTAURANTS, RESTAURANTS_NEARBY, type RestaurantSummary } from "../api/queries";
-import { formatMinutes, formatMoney } from "../components/money";
+import { formatDelivery, formatMinutes, formatMoney } from "../components/money";
+import { clearAddress, loadAddress, saveAddress, type Address } from "./address";
 
 /**
  * Витрина клиента — требование CAT-1.
@@ -24,14 +25,6 @@ const SAMPLE_ADDRESSES = [
   { label: "Сокольники", latitude: 55.7887, longitude: 37.6799 },
   { label: "Университет", latitude: 55.6925, longitude: 37.5346 },
 ];
-
-interface Address {
-  label: string;
-  latitude: number;
-  longitude: number;
-}
-
-const STORAGE_KEY = "fd:address";
 
 /** Поиск адреса по названию: открытая служба OpenStreetMap. */
 async function geocode(query: string): Promise<Address | null> {
@@ -57,12 +50,16 @@ async function geocode(query: string): Promise<Address | null> {
     : null;
 }
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 function RestaurantCard({ restaurant }: { restaurant: RestaurantSummary }) {
   return (
-    <Link to={`/restaurants/${restaurant.id}`} className="restaurant">
+    // Сведения о ресторане и условия зоны передаются в меню вместе с переходом:
+    // запрашивать их там заново незачем.
+    <Link to={`/restaurants/${restaurant.id}`} state={{ restaurant }} className="restaurant">
       <span className="restaurant__name">{restaurant.name}</span>
       <span className="restaurant__meta">
-        <span>Доставка {formatMoney(restaurant.deliveryFee)}</span>
+        <span>{capitalize(formatDelivery(restaurant.deliveryFee))}</span>
         <span>от {formatMoney(restaurant.minOrderAmount)}</span>
         <span>готовят ~{formatMinutes(restaurant.avgCookingTimeMin)}</span>
       </span>
@@ -71,30 +68,15 @@ function RestaurantCard({ restaurant }: { restaurant: RestaurantSummary }) {
 }
 
 export function StorefrontPage() {
-  const [address, setAddress] = useState<Address | null>(null);
+  const [address, setAddress] = useState<Address | null>(loadAddress);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Адрес запоминается между заходами: спрашивать его каждый раз —
-  // значит заставлять клиента делать лишнюю работу.
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setAddress(JSON.parse(saved) as Address);
-    } catch {
-      // Запрет на хранение в браузере не должен ломать витрину
-    }
-  }, []);
-
   const chooseAddress = (next: Address) => {
     setAddress(next);
     setSearchError(null);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // см. выше
-    }
+    saveAddress(next);
   };
 
   const search = async (event: React.FormEvent) => {
@@ -184,7 +166,7 @@ export function StorefrontPage() {
             className="secondary small"
             onClick={() => {
               setAddress(null);
-              localStorage.removeItem(STORAGE_KEY);
+              clearAddress();
             }}
           >
             изменить

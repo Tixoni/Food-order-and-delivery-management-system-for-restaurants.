@@ -1,11 +1,26 @@
+import { Suspense, lazy } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useSession } from "./auth/session";
 import { StorefrontPage } from "./pages/StorefrontPage";
 import { RestaurantMenuPage } from "./pages/RestaurantMenuPage";
 import { LoginPage } from "./pages/LoginPage";
-import { MenuManagerPage } from "./pages/manager/MenuManagerPage";
-import { ZoneEditorPage } from "./pages/manager/ZoneEditorPage";
-import { AdminRestaurantsPage } from "./pages/manager/AdminRestaurantsPage";
+
+/*
+ * Разделы сотрудников загружаются отдельно, по требованию: клиенту
+ * на телефоне незачем скачивать библиотеку карт и редакторы панели
+ * ресторана, чтобы выбрать пиццу.
+ */
+const MenuManagerPage = lazy(() =>
+  import("./pages/manager/MenuManagerPage").then((m) => ({ default: m.MenuManagerPage })),
+);
+const ZoneEditorPage = lazy(() =>
+  import("./pages/manager/ZoneEditorPage").then((m) => ({ default: m.ZoneEditorPage })),
+);
+const AdminRestaurantsPage = lazy(() =>
+  import("./pages/manager/AdminRestaurantsPage").then((m) => ({
+    default: m.AdminRestaurantsPage,
+  })),
+);
 
 /**
  * Разделы приложения.
@@ -40,7 +55,17 @@ function RequireRole({ roles, children }: { roles: string[]; children: JSX.Eleme
     );
   }
 
-  return children;
+  return (
+    <Suspense
+      fallback={
+        <main className="page">
+          <p className="notice notice--quiet">Загружаем раздел…</p>
+        </main>
+      }
+    >
+      {children}
+    </Suspense>
+  );
 }
 
 function Header() {

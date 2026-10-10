@@ -55,6 +55,7 @@ export const MENU = gql`
           description
           composition
           price
+          imageUrl
           weightGrams
           calories
           isAvailable
@@ -170,6 +171,56 @@ export const REGISTER_RESTAURANT = gql`
   }
 `;
 
+export const MENU_CATEGORIES = gql`
+  query MenuCategories($restaurantId: ID!) {
+    menuCategories(restaurantId: $restaurantId) {
+      id
+      name
+      sortOrder
+      isActive
+    }
+  }
+`;
+
+export const SAVE_CATEGORY = gql`
+  mutation SaveMenuCategory($input: SaveMenuCategoryInput!) {
+    saveMenuCategory(input: $input) {
+      id
+      name
+      sortOrder
+      isActive
+    }
+  }
+`;
+
+export const REPLACE_MODIFIERS = gql`
+  mutation ReplaceModifiers($itemId: ID!, $restaurantId: ID!, $groups: [ModifierGroupInput!]!) {
+    replaceModifiers(itemId: $itemId, restaurantId: $restaurantId, groups: $groups) {
+      id
+    }
+  }
+`;
+
+export const REMOVE_MENU_ITEM = gql`
+  mutation RemoveMenuItem($itemId: ID!, $restaurantId: ID!) {
+    removeMenuItem(itemId: $itemId, restaurantId: $restaurantId)
+  }
+`;
+
+export const UPDATE_RESTAURANT = gql`
+  mutation UpdateRestaurant(
+    $restaurantId: ID!
+    $input: RegisterRestaurantInput!
+    $isActive: Boolean
+  ) {
+    updateRestaurant(restaurantId: $restaurantId, input: $input, isActive: $isActive) {
+      id
+      name
+      isActive
+    }
+  }
+`;
+
 /* ─────────────── Типы ответов ─────────────── */
 
 export interface RestaurantSummary {
@@ -205,6 +256,7 @@ export interface MenuItem {
   description: string | null;
   composition: string | null;
   price: number;
+  imageUrl: string | null;
   weightGrams: number | null;
   calories: number | null;
   isAvailable: boolean;
@@ -239,4 +291,21 @@ export interface DeliveryZone {
   minOrderAmount: number;
   isActive: boolean;
   ring: ZonePoint[];
+}
+
+export interface MenuCategory {
+  id: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export interface RestaurantDetails {
+  id: string;
+  name: string;
+  phone: string | null;
+  addressText: string | null;
+  minOrderAmount: number;
+  deliveryFee: number;
+  isActive: boolean;
 }

@@ -38,3 +38,24 @@ export function formatMinutes(minutes: number): string {
 
   return `${minutes} минут`;
 }
+
+/** Надбавка модификатора: может быть и скидкой — «-50» означает минус 50 ₽. */
+export function parseSignedMoney(input: string): number | null {
+  const trimmed = input.trim().replace(/\s/g, "").replace("−", "-");
+  const negative = trimmed.startsWith("-");
+  const value = parseMoney(negative ? trimmed.slice(1) : trimmed.replace(/^\+/, ""));
+  return value === null ? null : negative ? -value : value;
+}
+
+/** Копейки в строку для поля ввода: 39000 → «390», 39050 → «390,50». */
+export function moneyInput(kopecks: number): string {
+  const sign = kopecks < 0 ? "-" : "";
+  const abs = Math.abs(kopecks);
+  const rest = abs % 100;
+  return `${sign}${Math.trunc(abs / 100)}${rest ? `,${String(rest).padStart(2, "0")}` : ""}`;
+}
+
+/** Стоимость доставки словами: бесплатная доставка — не «0,00 ₽». */
+export function formatDelivery(kopecks: number): string {
+  return kopecks === 0 ? "доставка бесплатно" : `доставка ${formatMoney(kopecks)}`;
+}

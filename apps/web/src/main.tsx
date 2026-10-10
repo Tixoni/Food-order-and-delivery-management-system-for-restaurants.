@@ -4,7 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { SessionProvider } from "./auth/session";
 import { ApolloProviderWithSession } from "./api/provider";
 import { App } from "./App";
-import "leaflet/dist/leaflet.css";
+import { BasketProvider } from "./cart/basket";
 import "./styles.css";
 
 /**
@@ -20,9 +20,11 @@ createRoot(root).render(
   <StrictMode>
     <SessionProvider>
       <ApolloProviderWithSession>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <BasketProvider>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </BasketProvider>
       </ApolloProviderWithSession>
     </SessionProvider>
   </StrictMode>,
