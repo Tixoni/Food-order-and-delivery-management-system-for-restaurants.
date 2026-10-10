@@ -1,4 +1,4 @@
-import { ValidationError } from "@food-delivery/shared";
+import { NotFoundError, ValidationError } from "@food-delivery/shared";
 import { Restaurant } from "../../domain/restaurant";
 import { ListRestaurantsUseCase } from "./list-restaurants.use-case";
 // Заглушка хранилища — общая для всех тестов сценариев: сценарий
@@ -66,5 +66,25 @@ describe("сценарий «список ресторанов»", () => {
 
     expect(result.items).toEqual([]);
     expect(result.total).toBe(0);
+  });
+
+  describe("один ресторан", () => {
+    const closedId = "6f1c2a90-0000-4000-8000-000000000001";
+
+    it("отдаёт и закрытый ресторан — его название нужно в старых заказах", async () => {
+      const useCase = new ListRestaurantsUseCase(
+        new InMemoryRestaurantRepository([restaurant(closedId, false)]),
+      );
+
+      await expect(useCase.getOne(closedId)).resolves.toMatchObject({ id: closedId });
+    });
+
+    it.each(["6f1c2a90-0000-4000-8000-000000000002", "не-идентификатор"])(
+      "неизвестный или неверный идентификатор %p — «не найден»",
+      async (id) => {
+        const useCase = new ListRestaurantsUseCase(new InMemoryRestaurantRepository([]));
+        await expect(useCase.getOne(id)).rejects.toThrow(NotFoundError);
+      },
+    );
   });
 });

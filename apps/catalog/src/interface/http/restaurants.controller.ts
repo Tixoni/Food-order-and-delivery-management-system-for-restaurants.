@@ -179,6 +179,16 @@ export class RestaurantsController {
     return { items: offers.map(offerToResponse), total: offers.length };
   }
 
+  /**
+   * Один ресторан. Объявлен после `delivery-to`: маршруты сопоставляются
+   * по порядку, и `:restaurantId` иначе перехватил бы поиск по адресу.
+   */
+  @Public()
+  @Get(":restaurantId")
+  async one(@Param("restaurantId") restaurantId: string) {
+    return toResponse(await this.listRestaurants.getOne(restaurantId));
+  }
+
   @Public()
   @Get()
   async list(@Query("page") page?: string, @Query("pageSize") pageSize?: string) {

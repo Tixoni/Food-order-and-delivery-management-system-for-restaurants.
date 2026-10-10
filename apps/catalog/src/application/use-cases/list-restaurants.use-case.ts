@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { ValidationError } from "@food-delivery/shared";
+import { NotFoundError, ValidationError } from "@food-delivery/shared";
 import type { Restaurant } from "../../domain/restaurant";
 import { RESTAURANT_REPOSITORY, type RestaurantRepository } from "../ports/restaurant.repository";
 
@@ -16,6 +16,7 @@ export interface ListRestaurantsResult {
 }
 
 const MAX_PAGE_SIZE = 50;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Сценарий использования: слой application.
@@ -49,5 +50,18 @@ export class ListRestaurantsUseCase {
     ]);
 
     return { items, total, page, pageSize };
+  }
+
+  /**
+   * Один ресторан — по прямой ссылке на меню и для заказа в истории клиента.
+   * Закрытый ресторан тоже отдаётся: его название нужно в старых заказах.
+   */
+  async getOne(restaurantId: string): Promise<Restaurant> {
+    // Неверный идентификатор — тоже «не найден», а не ошибка базы о формате UUID.
+    const restaurant = UUID.test(restaurantId)
+      ? await this.restaurants.findById(restaurantId)
+      : null;
+    if (!restaurant) throw new NotFoundError("ресторан не найден", { restaurantId });
+    return restaurant;
   }
 }
