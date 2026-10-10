@@ -8,6 +8,7 @@ import {
 } from "@food-delivery/service-kit";
 import { KeycloakClient, type TokenPair } from "./keycloak.client";
 import { LoginRateLimiter } from "./login-rate-limiter";
+import { RegistrationService, type RegistrationInput } from "./registration.service";
 
 /**
  * Вход в систему через шлюз.
@@ -51,7 +52,29 @@ export class AuthController {
     private readonly keycloak: KeycloakClient,
     private readonly rateLimiter: LoginRateLimiter,
     private readonly verifier: TokenVerifier,
+    private readonly registration: RegistrationService,
   ) {}
+
+  /**
+   * Регистрация клиента (AUTH-1). Учётная запись создаётся сразу, но войти
+   * в неё можно только после перехода по ссылке из письма.
+   */
+  @Public()
+  @Post("register")
+  @HttpCode(HttpStatus.ACCEPTED)
+  async register(@Body() body: RegistrationInput, @Req() request: Request) {
+    await this.rateLimiter.check(addressOf(request), "register");
+    return this.registration.register(body);
+  }
+
+  /** Повторная отправка письма, если первое потерялось или ссылка истекла. */
+  @Public()
+  @Post("verification/resend")
+  @HttpCode(HttpStatus.ACCEPTED)
+  async resendVerification(@Body() body: { email?: string }, @Req() request: Request) {
+    await this.rateLimiter.check(addressOf(request), "register");
+    return this.registration.resend(body.email);
+  }
 
   @Public()
   @Post("login")

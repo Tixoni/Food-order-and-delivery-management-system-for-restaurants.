@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
   ExternalServiceError,
+  ForbiddenError,
   UnauthorizedError,
   createLogger,
   type Logger,
@@ -23,6 +24,17 @@ export interface TokenPair {
   expiresIn: number;
   tokenType: string;
 }
+
+/**
+ * Признак учётной записи, которой не хватает обязательного действия, —
+ * у нас это подтверждение e-mail (AUTH-1). Провайдер сообщает о нём только
+ * после проверки пароля, поэтому отдельный ответ не помогает перебирать
+ * учётные записи: его получит лишь тот, кто пароль знает.
+ */
+const NOT_FULLY_SET_UP = "Account is not fully set up";
+
+/** Код, по которому клиентская часть предлагает отправить письмо ещё раз. */
+export const EMAIL_NOT_VERIFIED = "EMAIL_NOT_VERIFIED";
 
 interface KeycloakTokenResponse {
   access_token: string;
@@ -80,6 +92,17 @@ export class KeycloakClient {
   private async token(form: Record<string, string>): Promise<TokenPair> {
     const response = await this.post("/protocol/openid-connect/token", form);
 
+    if (response.status === 400) {
+      const failure = (await response.json().catch(() => ({}))) as {
+        error_description?: string;
+      };
+      if (failure.error_description === NOT_FULLY_SET_UP) {
+        throw new ForbiddenError(
+          "e-mail не подтверждён: перейдите по ссылке из письма, отправленного при регистрации",
+          { reason: EMAIL_NOT_VERIFIED },
+        );
+      }
+    }
     if (response.status === 401 || response.status === 400) {
       // Что именно не подошло — имя или пароль — наружу не сообщается:
       // иначе по ответу можно перебирать существующие учётные записи.
@@ -100,7 +123,7 @@ export class KeycloakClient {
   }
 
   private async post(path: string, form: Record<string, string>): Promise<Response> {
-    const url = `${this.config.auth.issuer}${path}`;
+    const url = `${this.config.auth.providerUrl ?? this.config.auth.issuer}${path}`;
 
     try {
       return await fetch(url, {

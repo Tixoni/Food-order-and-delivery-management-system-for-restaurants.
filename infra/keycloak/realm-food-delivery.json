@@ -1,6 +1,15 @@
 {
   "realm": "food-delivery",
   "displayName": "Доставка еды",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["ru"],
+  "defaultLocale": "ru",
+  "localizationTexts": {
+    "ru": {
+      "confirmEmailAddressVerification": "Подтвердите, что адрес {0} принадлежит вам.",
+      "proceedWithAction": "» Подтвердить"
+    }
+  },
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": true,
@@ -8,7 +17,16 @@
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
-  "verifyEmail": false,
+  "verifyEmail": true,
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "noreply@food.local",
+    "fromDisplayName": "Доставка еды",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
@@ -54,6 +72,30 @@
       {
         "name": "admin",
         "description": "Администратор: регистрация ресторанов и курьеров"
+      },
+      {
+        "name": "default-roles-food-delivery",
+        "description": "Роли, выдаваемые каждому новому пользователю. Состав задаётся здесь: из блока defaultRole провайдер его при загрузке не берёт",
+        "composite": true,
+        "composites": {
+          "realm": ["offline_access", "uma_authorization", "client"],
+          "client": {
+            "account": ["view-profile", "manage-account"]
+          }
+        },
+        "clientRole": false
+      },
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}",
+        "composite": false,
+        "clientRole": false
       }
     ]
   },
@@ -104,6 +146,20 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "gateway-admin",
+      "name": "Шлюз: регистрация клиентов",
+      "description": "Служебное приложение шлюза. Только управление учётными записями: регистрация и письмо подтверждения e-mail (AUTH-1). Секрет здесь — учебный, в рабочем окружении выпускается заново.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "gateway-admin-dev-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
@@ -208,6 +264,14 @@
         }
       ],
       "realmRoles": ["admin"]
+    },
+    {
+      "username": "service-account-gateway-admin",
+      "enabled": true,
+      "serviceAccountClientId": "gateway-admin",
+      "clientRoles": {
+        "realm-management": ["manage-users", "view-users"]
+      }
     }
   ],
   "components": {
@@ -218,7 +282,7 @@
         "subComponents": {},
         "config": {
           "kc.user.profile.config": [
-            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"restaurantId\", \"displayName\": \"Ресторан сотрудника\", \"validations\": {\"length\": {\"max\": 64}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": [{\"name\": \"user-metadata\", \"displayHeader\": \"Сведения о сотруднике\"}]}"
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"restaurantId\", \"displayName\": \"Ресторан сотрудника\", \"validations\": {\"length\": {\"max\": 64}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": [{\"name\": \"user-metadata\", \"displayHeader\": \"Сведения о сотруднике\"}]}"
           ]
         }
       }

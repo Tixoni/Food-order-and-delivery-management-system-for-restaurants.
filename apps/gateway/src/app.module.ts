@@ -8,6 +8,8 @@ import { GATEWAY_CONFIG, loadConfig } from "./config/configuration";
 import { AuthController } from "./auth/auth.controller";
 import { KeycloakClient } from "./auth/keycloak.client";
 import { LoginRateLimiter } from "./auth/login-rate-limiter";
+import { ACCOUNT_DIRECTORY, KeycloakAdminClient } from "./auth/keycloak-admin.client";
+import { RegistrationService } from "./auth/registration.service";
 import { CatalogCache } from "./catalog/catalog.cache";
 import { CatalogClient } from "./catalog/catalog.client";
 import { CatalogEventsConsumer } from "./catalog/catalog-events.consumer";
@@ -32,7 +34,14 @@ const config = loadConfig();
     }),
     // Проверка токена на каждом запросе (SEC-2). Вход при этом остаётся
     // открытым — иначе войти было бы невозможно.
-    AuthModule.forRoot({ ...config.auth, guard: GqlAuthGuard }),
+    // Секрет служебного приложения сюда не передаётся: проверке токенов он не нужен.
+    AuthModule.forRoot({
+      issuer: config.auth.issuer,
+      providerUrl: config.auth.providerUrl,
+      audience: config.auth.audience,
+      disabled: config.auth.disabled,
+      guard: GqlAuthGuard,
+    }),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       // Схема создаётся из классов при запуске и сохраняется файлом:
@@ -78,6 +87,8 @@ const config = loadConfig();
     { provide: GATEWAY_CONFIG, useValue: config },
     KeycloakClient,
     LoginRateLimiter,
+    { provide: ACCOUNT_DIRECTORY, useClass: KeycloakAdminClient },
+    RegistrationService,
     CatalogClient,
     CatalogCache,
     // Сброс кэша по событиям каталога — вторая половина требования CAT-4.

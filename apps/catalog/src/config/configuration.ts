@@ -36,6 +36,8 @@ export interface CatalogConfig {
   auth: {
     /** Область провайдера входа: по её адресу берутся ключи проверки подписи. */
     issuer: string;
+    /** Внутренний адрес провайдера входа; не задан — совпадает с издателем. */
+    providerUrl?: string;
     audience: string;
     /**
      * Работа без провайдера входа. Включается только для разработки,
@@ -109,6 +111,7 @@ export function loadConfig(): CatalogConfig {
     },
     auth: {
       issuer: required("KEYCLOAK_ISSUER", "http://localhost:18080/realms/food-delivery"),
+      providerUrl: process.env.KEYCLOAK_INTERNAL_URL || undefined,
       audience: required("AUTH_AUDIENCE", "food-delivery-api"),
       disabled: process.env.AUTH_DISABLED === "true",
     },

@@ -16,11 +16,24 @@ export interface ServiceConfig {
     cacheTtlSeconds: number;
   };
   auth: {
-    /** Область провайдера входа: и для проверки подписи, и для самого входа. */
+    /** Публичный адрес области провайдера входа — издатель токенов (`iss`). */
     issuer: string;
+    /**
+     * Адрес той же области внутри сети сервисов: по нему шлюз получает токены
+     * и ключи подписи. Не задан — совпадает с издателем.
+     */
+    providerUrl?: string;
     audience: string;
     /** Приложение, от имени которого выполняется вход. */
     clientId: string;
+    /**
+     * Служебное приложение шлюза для регистрации клиентов (AUTH-1): ему выдано
+     * только право управлять учётными записями области, ролей оно не раздаёт.
+     */
+    adminClientId: string;
+    adminClientSecret: string;
+    /** Адрес клиентского приложения: туда ведёт ссылка из письма после подтверждения. */
+    appUrl: string;
     /** Сколько ждать ответа провайдера, прежде чем считать его недоступным. */
     timeoutMs: number;
     disabled: boolean;
@@ -89,7 +102,13 @@ export function loadConfig(): ServiceConfig {
     auth: {
       issuer: required("KEYCLOAK_ISSUER", "http://localhost:18080/realms/food-delivery"),
       audience: required("AUTH_AUDIENCE", "food-delivery-api"),
+      providerUrl: process.env.KEYCLOAK_INTERNAL_URL || undefined,
       clientId: required("AUTH_CLIENT_ID", "web"),
+      adminClientId: required("AUTH_ADMIN_CLIENT_ID", "gateway-admin"),
+      // Значение по умолчанию — из учебного файла области; в рабочем окружении
+      // секрет выпускается заново и приходит только переменной окружения.
+      adminClientSecret: required("AUTH_ADMIN_CLIENT_SECRET", "gateway-admin-dev-secret"),
+      appUrl: required("APP_PUBLIC_URL", "http://localhost:5173"),
       timeoutMs: numeric("AUTH_TIMEOUT_MS", 5000),
       disabled: process.env.AUTH_DISABLED === "true",
     },

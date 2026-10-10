@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
-import { useSession, type SessionUser } from "../auth/session";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { call, useSession, type SessionUser } from "../auth/session";
 
 /** Куда вести после входа: сотрудника — сразу в его раздел, клиента — на витрину. */
 function homeOf(user: SessionUser): string {
@@ -18,10 +18,12 @@ function homeOf(user: SessionUser): string {
  * иначе форма помогала бы подбирать существующие учётные записи.
  */
 export function LoginPage() {
-  const { user, login, error } = useSession();
+  const { user, login, error, errorReason } = useSession();
+  const [params] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resent, setResent] = useState(false);
 
   if (user) return <Navigate to={homeOf(user)} replace />;
 
@@ -38,9 +40,21 @@ export function LoginPage() {
     }
   };
 
+  // Письмо подтверждения уходит повторно только по запросу: адрес уже
+  // введён в форму, а ответ шлюза не говорит, существует ли учётная запись.
+  const resend = async () => {
+    await call("/auth/verification/resend", { email: username.trim() }).catch(() => undefined);
+    setResent(true);
+  };
+
   return (
     <main className="page page--narrow">
       <h1 className="page__title">Вход</h1>
+      {params.get("verified") && (
+        <p className="notice notice--ok" role="status">
+          E-mail подтверждён — теперь можно войти.
+        </p>
+      )}
       <p className="page__hint">
         Для заказа и для работы сотрудников ресторана. Выбирать блюда можно и без входа.
       </p>
@@ -76,10 +90,24 @@ export function LoginPage() {
             {error}
           </p>
         )}
+        {errorReason === "EMAIL_NOT_VERIFIED" &&
+          (resent ? (
+            <p className="notice notice--quiet" role="status">
+              Письмо отправлено ещё раз — проверьте почту.
+            </p>
+          ) : (
+            <button type="button" className="secondary" onClick={() => void resend()}>
+              Отправить письмо ещё раз
+            </button>
+          ))}
         <button type="submit" disabled={busy || !username || !password}>
           {busy ? "Входим…" : "Войти"}
         </button>
       </form>
+
+      <p className="page__hint">
+        Впервые у нас? <Link to="/register">Зарегистрироваться</Link>
+      </p>
     </main>
   );
 }

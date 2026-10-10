@@ -4,6 +4,7 @@ import { useSession } from "./auth/session";
 import { StorefrontPage } from "./pages/StorefrontPage";
 import { RestaurantMenuPage } from "./pages/RestaurantMenuPage";
 import { LoginPage } from "./pages/LoginPage";
+import { RegisterPage } from "./pages/RegisterPage";
 
 /*
  * Разделы сотрудников загружаются отдельно, по требованию: клиенту
@@ -108,6 +109,7 @@ export function App() {
         <Route path="/" element={<StorefrontPage />} />
         <Route path="/restaurants/:restaurantId" element={<RestaurantMenuPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
         <Route
           path="/manage/menu"

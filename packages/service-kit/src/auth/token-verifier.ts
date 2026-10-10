@@ -30,12 +30,15 @@ export class TokenVerifier {
   constructor(@Inject(AUTH_OPTIONS) private readonly options: AuthOptions) {
     this.jwks = options.disabled
       ? null
-      : createRemoteJWKSet(new URL(`${options.issuer}/protocol/openid-connect/certs`), {
-          // Ключи провайдера меняются редко; без кэша каждый запрос
-          // с новым ключом приводил бы к походу в сеть.
-          cacheMaxAge: 10 * 60 * 1000,
-          cooldownDuration: 30 * 1000,
-        });
+      : createRemoteJWKSet(
+          new URL(`${options.providerUrl ?? options.issuer}/protocol/openid-connect/certs`),
+          {
+            // Ключи провайдера меняются редко; без кэша каждый запрос
+            // с новым ключом приводил бы к походу в сеть.
+            cacheMaxAge: 10 * 60 * 1000,
+            cooldownDuration: 30 * 1000,
+          },
+        );
   }
 
   async verify(token: string): Promise<AuthenticatedUser> {

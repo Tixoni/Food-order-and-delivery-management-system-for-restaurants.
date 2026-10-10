@@ -140,6 +140,13 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
+      # Публичный адрес провайдера: из него строятся ссылки в письмах
+      # (AUTH-1) и поле издателя токенов. Без него ссылка подтверждения
+      # вела бы на keycloak:8080 — имя, известное только внутри сети
+      # контейнеров. Сервисы при этом ходят к провайдеру по внутреннему
+      # адресу (KEYCLOAK_INTERNAL_URL), и он отвечает им по нему же.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-18080}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     ports:
       - "${KEYCLOAK_PORT:-18080}:8080"
     volumes:
@@ -152,6 +159,25 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+
+  # ─────────────────────────────────────────────────────────────
+  # Почтовый сервер-ловушка: принимает письма провайдера входа
+  # (подтверждение e-mail, AUTH-1) и никуда их не отправляет.
+  # Письма видны в веб-интерфейсе и доступны сценарию проверки по API.
+  # ─────────────────────────────────────────────────────────────
+  mailpit:
+    image: axllent/mailpit:v1.20.4
+    container_name: fd-mailpit
+    profiles: ["auth", "apps", "full"]
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_UI_PORT:-18025}:8025"
+      - "${MAILPIT_SMTP_PORT:-11025}:1025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   # ─────────────────────────────────────────────────────────────
   # Сервис каталога. Профиль apps — чтобы при разработке можно было
@@ -189,11 +215,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       KAFKA_BROKERS: kafka:9092
-      # Внутри общей сети провайдер входа доступен по имени сервиса.
-      # Токен, выданный по этому адресу, содержит его же в поле издателя,
-      # поэтому проверка подписи сходится. При запуске сервисов на машине
-      # разработчика оба адреса — localhost, и они сходятся так же.
-      KEYCLOAK_ISSUER: http://keycloak:8080/realms/food-delivery
+      # Издатель токенов — публичный адрес провайдера (KC_HOSTNAME), ключи
+      # подписи сервис забирает по внутреннему: из контейнера localhost —
+      # это сам контейнер. При запуске сервисов на машине разработчика
+      # внутренний адрес не нужен — оба совпадают.
+      KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
       AUTH_AUDIENCE: food-delivery-api
     ports:
       - "${CATALOG_PORT:-13001}:3001"
@@ -220,9 +247,13 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       KAFKA_BROKERS: kafka:9092
-      KEYCLOAK_ISSUER: http://keycloak:8080/realms/food-delivery
+      KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
       AUTH_AUDIENCE: food-delivery-api
       AUTH_CLIENT_ID: web
+      AUTH_ADMIN_CLIENT_ID: gateway-admin
+      AUTH_ADMIN_CLIENT_SECRET: ${AUTH_ADMIN_CLIENT_SECRET:-gateway-admin-dev-secret}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:5173}
       CATALOG_URL: http://catalog:3001
     ports:
       - "${GATEWAY_PORT:-13000}:3000"
@@ -260,7 +291,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       KAFKA_BROKERS: kafka:9092
-      KEYCLOAK_ISSUER: http://keycloak:8080/realms/food-delivery
+      KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
       AUTH_AUDIENCE: food-delivery-api
       CATALOG_URL: http://catalog:3001
       PAYMENT_MODE: ${PAYMENT_MODE:-stub}

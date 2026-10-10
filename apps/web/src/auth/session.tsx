@@ -32,11 +32,23 @@ export interface SessionUser {
   restaurantId?: string;
 }
 
+/** Ошибка шлюза с причиной: по ней форма решает, что предложить пользователю. */
+export class AuthError extends Error {
+  constructor(
+    message: string,
+    readonly reason?: string,
+  ) {
+    super(message);
+  }
+}
+
 interface SessionState {
   user: SessionUser | null;
   /** Истина, пока приложение выясняет, есть ли действующий сеанс. */
   loading: boolean;
   error: string | null;
+  /** Причина последней ошибки входа, например EMAIL_NOT_VERIFIED. */
+  errorReason: string | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Токен для запросов. Функция, а не значение: он меняется при продлении. */
@@ -52,7 +64,7 @@ interface LoginResponse {
   user: SessionUser;
 }
 
-async function call(path: string, body?: unknown): Promise<LoginResponse> {
+export async function call<T = LoginResponse>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -63,16 +75,17 @@ async function call(path: string, body?: unknown): Promise<LoginResponse> {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.message ?? "не удалось войти");
+    throw new AuthError(payload.message ?? "не удалось войти", payload.details?.reason);
   }
 
-  return payload as LoginResponse;
+  return payload as T;
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorReason, setErrorReason] = useState<string | null>(null);
 
   // Токен в ref, а не в состоянии: его изменение не должно перерисовывать
   // приложение, а читать его нужно из обработчиков запросов.
@@ -83,13 +96,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     token.current = session.accessToken;
     setUser(session.user);
     setError(null);
+    setErrorReason(null);
 
     // Продление заранее, за минуту до конца: иначе запрос, отправленный
     // в последнюю секунду, придёт на сервер уже с истёкшим токеном.
     if (renewal.current) window.clearTimeout(renewal.current);
     renewal.current = window.setTimeout(
       () => {
-        void call("/auth/refresh").then(apply).catch(reset);
+        void call<LoginResponse>("/auth/refresh").then(apply).catch(reset);
       },
       Math.max(5, session.expiresIn - 60) * 1000,
     );
@@ -104,7 +118,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // При запуске приложение проверяет, не остался ли действующий сеанс:
   // токен доступа перезагрузку вкладки не переживает, а кука — да.
   useEffect(() => {
-    call("/auth/refresh")
+    call<LoginResponse>("/auth/refresh")
       .then(apply)
       .catch(() => reset())
       .finally(() => setLoading(false));
@@ -117,9 +131,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (username: string, password: string) => {
       try {
-        apply(await call("/auth/login", { username, password }));
+        apply(await call<LoginResponse>("/auth/login", { username, password }));
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "не удалось войти");
+        setErrorReason(failure instanceof AuthError ? (failure.reason ?? null) : null);
         throw failure;
       }
     },
@@ -136,12 +151,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       error,
+      errorReason,
       login,
       logout,
       accessToken: () => token.current,
       hasRole: (...roles: string[]) => !!user && roles.some((role) => user.roles.includes(role)),
     }),
-    [user, loading, error, login, logout],
+    [user, loading, error, errorReason, login, logout],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

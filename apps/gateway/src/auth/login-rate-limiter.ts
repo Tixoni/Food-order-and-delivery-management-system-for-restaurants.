@@ -19,7 +19,14 @@ import { GATEWAY_CONFIG, type GatewayConfig } from "../config/configuration";
  * обнулялся бы — подбор продолжился бы с чистого листа.
  */
 
-/** Окно и предел заданы требованием SEC-5. */
+/**
+ * Окно и предел заданы требованием SEC-5. Регистрация и повторная отправка
+ * письма считаются отдельно от входа: иначе неудачные попытки входа
+ * мешали бы зарегистрироваться, — но с тем же пределом, чтобы через форму
+ * нельзя было засыпать чужой ящик письмами.
+ */
+export type RateLimitScope = "login" | "register";
+
 const WINDOW_SECONDS = 60;
 const MAX_ATTEMPTS = 10;
 
@@ -49,8 +56,8 @@ export class LoginRateLimiter implements OnApplicationShutdown {
    * иначе подбор с верным паролем к чужой учётной записи не ограничивался бы
    * вовсе, а именно он и опасен.
    */
-  async check(clientIp: string): Promise<void> {
-    const key = `auth:login:${clientIp}`;
+  async check(clientIp: string, scope: RateLimitScope = "login"): Promise<void> {
+    const key = `auth:${scope}:${clientIp}`;
     const client = this.redis.readyClient;
     if (!client) {
       this.logger.warn("частота попыток входа не проверена: Redis недоступен");
@@ -77,9 +84,10 @@ export class LoginRateLimiter implements OnApplicationShutdown {
     if (attempts > MAX_ATTEMPTS) {
       const retryAfter = await this.secondsLeft(key);
 
-      this.logger.warn("превышена частота попыток входа", { clientIp, attempts });
+      this.logger.warn("превышена частота попыток", { clientIp, scope, attempts });
+      const what = scope === "login" ? "попыток входа" : "запросов на регистрацию";
       throw new TooManyRequestsError(
-        `слишком много попыток входа: не более ${MAX_ATTEMPTS} в минуту. ` +
+        `слишком много ${what}: не более ${MAX_ATTEMPTS} в минуту. ` +
           `Повторите через ${retryAfter} с`,
         { retryAfterSeconds: retryAfter },
       );

@@ -61,6 +61,8 @@ export interface OrderConfig {
   saga: SagaSettings;
   auth: {
     issuer: string;
+    /** Внутренний адрес провайдера входа; не задан — совпадает с издателем. */
+    providerUrl?: string;
     audience: string;
     disabled: boolean;
   };
@@ -203,6 +205,7 @@ export function loadConfig(): OrderConfig {
     },
     auth: {
       issuer: required("KEYCLOAK_ISSUER", "http://localhost:18080/realms/food-delivery"),
+      providerUrl: process.env.KEYCLOAK_INTERNAL_URL || undefined,
       audience: required("AUTH_AUDIENCE", "food-delivery-api"),
       disabled: process.env.AUTH_DISABLED === "true",
     },
