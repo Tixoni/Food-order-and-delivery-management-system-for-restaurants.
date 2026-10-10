@@ -260,8 +260,9 @@ services:
 
   # Сервис заказов: автомат статусов, оркестратор саги, таймеры, корзина.
   # Платежи и доставка до их реализации — заглушки внутри процесса
-  # (PAYMENT_MODE / DELIVERY_MODE = stub); заглушка платежей умеет управляемые
-  # отказы для проверки компенсаций: PAYMENT_STUB_FAIL_OPERATION=capture.
+  # (PAYMENT_MODE / DELIVERY_MODE = stub). Платежи с итерации 2 — настоящий
+  # сервис `payment` (PAYMENT_MODE=http); отказы для проверки компенсаций
+  # включаются у эмулятора провайдера: POST /_emulator/settings.
   order:
     build:
       context: ../..
@@ -295,8 +296,9 @@ services:
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
       AUTH_AUDIENCE: food-delivery-api
       CATALOG_URL: http://catalog:3001
-      PAYMENT_MODE: ${PAYMENT_MODE:-stub}
+      PAYMENT_MODE: ${PAYMENT_MODE:-http}
       PAYMENT_URL: http://payment:3003
+      PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:-payment-internal-dev-token}
       DELIVERY_MODE: ${DELIVERY_MODE:-stub}
       DELIVERY_URL: http://delivery:3004
       PAYMENT_STUB_FAIL_OPERATION: ${PAYMENT_STUB_FAIL_OPERATION:-}
@@ -314,6 +316,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+      payment-provider:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -323,8 +329,47 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
       PAYMENT_DB: ${PAYMENT_DB:-payment_db}
+      KAFKA_BROKERS: kafka:9092
+      PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:-payment-internal-dev-token}
+      PROVIDER_URL: http://payment-provider:3010
+      PROVIDER_SHOP_ID: ${PROVIDER_SHOP_ID:-food-delivery-shop}
+      PROVIDER_SECRET_KEY: ${PROVIDER_SECRET_KEY:-test_provider_dev_secret}
+      # Учебный стенд работает с учебными секретами; в рабочем окружении
+      # сервис без собственных секретов не запустится.
+      ALLOW_DEV_SECRETS: ${ALLOW_DEV_SECRETS:-true}
     ports:
       - "${PAYMENT_PORT:-13003}:3003"
+
+  # ─────────────────────────────────────────────────────────────
+  # Эмулятор платёжного провайдера (контракт ЮKassa). Тот же образ,
+  # что у сервиса платежей, другая команда. Отказы, задержки и отклонения
+  # банка включаются на лету: POST http://localhost:13010/_emulator/settings.
+  # Остановка контейнера изображает недоступность провайдера (REL-2).
+  # ─────────────────────────────────────────────────────────────
+  payment-provider:
+    image: food-delivery/payment:local
+    container_name: fd-payment-provider
+    profiles: ["apps", "full"]
+    restart: unless-stopped
+    command: ["node", "apps/payment/dist/provider-emulator/main.js"]
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      EMULATOR_PORT: 3010
+      PROVIDER_SHOP_ID: ${PROVIDER_SHOP_ID:-food-delivery-shop}
+      PROVIDER_SECRET_KEY: ${PROVIDER_SECRET_KEY:-test_provider_dev_secret}
+    ports:
+      - "${PROVIDER_PORT:-13010}:3010"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   delivery:
     build:

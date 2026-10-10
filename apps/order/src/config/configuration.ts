@@ -45,7 +45,8 @@ export interface OrderConfig {
      * Платежи и доставка: настоящий сервис по внутреннему HTTP или заглушка
      * внутри процесса — пока сервис-участник не реализован.
      */
-    payment: { mode: "http" | "stub"; url: string };
+    /** `internalToken` — служебный токен внутреннего API платёжного сервиса. */
+    payment: { mode: "http" | "stub"; url: string; internalToken: string };
     delivery: { mode: "http" | "stub"; url: string };
     timeoutMs: number;
     breaker: { failureThreshold: number; openDurationMs: number };
@@ -177,6 +178,7 @@ export function loadConfig(): OrderConfig {
       payment: {
         mode: mode("PAYMENT_MODE"),
         url: required("PAYMENT_URL", "http://localhost:13003"),
+        internalToken: required("PAYMENT_INTERNAL_TOKEN", "payment-internal-dev-token"),
       },
       delivery: {
         mode: mode("DELIVERY_MODE"),

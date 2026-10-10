@@ -28,6 +28,12 @@ export interface InternalHttpClientOptions {
   /** Размыкатель цепи; `false` — выключен. */
   breaker?: { failureThreshold: number; openDurationMs: number } | false;
   logger?: Logger;
+  /**
+   * Заголовки каждого запроса к этому соседу — например, служебный токен
+   * внутреннего API (`x-internal-token`), без которого платёжный сервис
+   * не выполнит операцию.
+   */
+  headers?: Record<string, string>;
   onCircuitChange?: (state: CircuitState, name: string) => void;
   /** Подменяется в тестах. */
   fetch?: typeof fetch;
@@ -125,6 +131,7 @@ export class InternalHttpClient {
       response = await this.fetchImpl(`${this.options.baseUrl}${path}`, {
         method,
         headers: {
+          ...this.options.headers,
           [CORRELATION_HEADER]: getCorrelationId(),
           ...(token ? { authorization: `Bearer ${token}` } : {}),
           ...(body !== undefined ? { "content-type": "application/json" } : {}),

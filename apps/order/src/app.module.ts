@@ -1,7 +1,12 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { createLogger } from "@food-delivery/shared";
-import { AuthModule, InternalHttpClient, ServiceKitModule } from "@food-delivery/service-kit";
+import {
+  AuthModule,
+  INTERNAL_TOKEN_HEADER,
+  InternalHttpClient,
+  ServiceKitModule,
+} from "@food-delivery/service-kit";
 import { ORDER_CONFIG, loadConfig, type OrderConfig } from "./config/configuration";
 import { CART_STORE } from "./application/ports/cart.store";
 import { CLOCK, systemClock } from "./application/ports/clock";
@@ -45,10 +50,16 @@ const config = loadConfig();
  * Отдельный экземпляр на каждого соседа — у каждого своя цепь: отказ
  * платежей не должен размыкать вызовы каталога.
  */
-const httpClient = (name: string, baseUrl: string, cfg: OrderConfig) =>
+const httpClient = (
+  name: string,
+  baseUrl: string,
+  cfg: OrderConfig,
+  headers?: Record<string, string>,
+) =>
   new InternalHttpClient({
     name,
     baseUrl,
+    headers,
     timeoutMs: cfg.services.timeoutMs,
     breaker: cfg.services.breaker,
     retry: { attempts: 3, baseDelayMs: 100, maxDelayMs: 1000 },
@@ -99,8 +110,9 @@ const httpClient = (name: string, baseUrl: string, cfg: OrderConfig) =>
       inject: [ORDER_REPOSITORY, ORDER_WORKFLOW],
     },
 
-    // Участники саги. Платежи и доставка — заглушки внутри процесса, пока
-    // сервисы-участники не реализованы; переключение — PAYMENT_MODE / DELIVERY_MODE.
+    // Участники саги. Платежи — сервис `payment` (PAYMENT_MODE=http) или
+    // заглушка внутри процесса для разработки без него; доставка — заглушка
+    // до итерации 3. Переключение — PAYMENT_MODE / DELIVERY_MODE.
     {
       provide: CATALOG_PORT,
       useValue: new CatalogHttpClient(httpClient("catalog", config.services.catalogUrl, config)),
@@ -109,7 +121,13 @@ const httpClient = (name: string, baseUrl: string, cfg: OrderConfig) =>
       provide: PAYMENT_PORT,
       useValue:
         config.services.payment.mode === "http"
-          ? new PaymentHttpClient(httpClient("payment", config.services.payment.url, config))
+          ? new PaymentHttpClient(
+              // Операции с деньгами платёжный сервис выполняет только
+              // по служебному токену.
+              httpClient("payment", config.services.payment.url, config, {
+                [INTERNAL_TOKEN_HEADER]: config.services.payment.internalToken,
+              }),
+            )
           : new PaymentStub(config.paymentStub),
     },
     {

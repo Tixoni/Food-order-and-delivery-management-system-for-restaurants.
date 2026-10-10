@@ -3,6 +3,7 @@ export * from "./auth/auth.decorators";
 export * from "./auth/auth.guard";
 export * from "./auth/auth.module";
 export * from "./auth/auth.types";
+export * from "./auth/internal-token.guard";
 export * from "./auth/token-verifier";
 export * from "./bootstrap";
 export * from "./correlation.middleware";

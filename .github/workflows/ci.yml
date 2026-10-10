@@ -158,6 +158,19 @@ jobs:
           npm run build -w @food-delivery/service-kit
           npm test -w @food-delivery/order -- order.integration
 
+      # Идемпотентность платежей держат уникальные индексы и завершение
+      # операции под блокировкой: двадцать одновременных повторов холда
+      # и списания проверяются на настоящей СУБД (PAY-4).
+      - name: Интеграционные тесты платежей на PostgreSQL
+        env:
+          PAYMENT_DB: payment_verify_db
+          MIGRATION_SERVICE: payment
+          PAYMENT_INTEGRATION_DB_URL: postgres://app:app@localhost:5432/payment_verify_db
+        run: |
+          PGPASSWORD=app psql -h localhost -U app -d app -c "CREATE DATABASE payment_verify_db"
+          npm run db:migrate
+          npm test -w @food-delivery/payment -- payment.integration
+
       - name: Проверка географического запроса
         run: |
           PGPASSWORD=app psql -h localhost -U app -d catalog_db -tAc "

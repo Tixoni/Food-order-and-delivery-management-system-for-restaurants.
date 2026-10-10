@@ -20,6 +20,7 @@ COPY apps/payment ./apps/payment
 
 RUN npm run build -w @food-delivery/shared \
     && npm run build -w @food-delivery/service-kit \
+    && npm run build -w @food-delivery/contracts \
     && npm run build -w @food-delivery/payment \
     && npm prune --omit=dev
 
@@ -34,6 +35,8 @@ COPY --from=builder --chown=node:node /app/packages/shared/package.json ./packag
 COPY --from=builder --chown=node:node /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder --chown=node:node /app/packages/service-kit/package.json ./packages/service-kit/
 COPY --from=builder --chown=node:node /app/packages/service-kit/dist ./packages/service-kit/dist
+COPY --from=builder --chown=node:node /app/packages/contracts/package.json ./packages/contracts/
+COPY --from=builder --chown=node:node /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder --chown=node:node /app/apps/payment/package.json ./apps/payment/
 COPY --from=builder --chown=node:node /app/apps/payment/dist ./apps/payment/dist
 
@@ -44,4 +47,6 @@ EXPOSE 3003
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
     CMD node -e "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+# Тот же образ запускает и эмулятор провайдера — другой командой:
+#   node apps/payment/dist/provider-emulator/main.js
 CMD ["node", "apps/payment/dist/main.js"]

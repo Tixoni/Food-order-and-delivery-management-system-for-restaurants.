@@ -48,6 +48,21 @@ describe("InternalHttpClient", () => {
     expect(init.body).toBe(JSON.stringify({ a: 1 }));
   });
 
+  it("добавляет заголовки соседа, но не даёт подменить сквозной идентификатор", async () => {
+    fetchMock.mockResolvedValue(json(200, { ok: true }));
+
+    await runWithContext({ correlationId: "corr-2" }, () =>
+      client({
+        headers: { "x-internal-token": "secret", "x-correlation-id": "forged" },
+      }).request({ method: "GET", path: "/x" }),
+    );
+
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+      "x-internal-token": "secret",
+      "x-correlation-id": "corr-2",
+    });
+  });
+
   it("повторяет чтение при отказе сети", async () => {
     fetchMock
       .mockRejectedValueOnce(new Error("ECONNRESET"))

@@ -6,14 +6,19 @@
  * Сценарии (ORDER_E2E_SCENARIO):
  *   happy            — оформление → оплата → кухня → курьер → вручение;
  *                      повтор формы, события в Kafka, повтор события, DLQ;
- *   capture-failure  — заглушка платежей отказывает на списании
- *                      (order запущен с PAYMENT_STUB_FAIL_OPERATION=capture):
- *                      отзыв у ресторана, снятие холда, отмена «техническая»;
+ *   capture-failure  — платежи отказывают на списании: отзыв у ресторана,
+ *                      снятие холда, отмена «техническая». С настоящим сервисом
+ *                      платежей (PAYMENT_MODE=http) отказ включается у эмулятора
+ *                      провайдера — задайте PROVIDER_URL; с заглушкой — order
+ *                      запускается с PAYMENT_STUB_FAIL_OPERATION=capture;
+ *   payment-down     — сервис платежей остановлен (REL-2): заказ всё равно
+ *                      принимается, а затем отменяется с явной причиной;
  *   timeout-start    — оформить и оставить ждать ресторан (перед перезапуском);
  *   timeout-check    — после перезапуска order: заказ отменён по сроку (REL-6).
  *
  * Запуск: ORDER_URL=http://localhost:13102 CATALOG_URL=http://localhost:13101 \
- *         KAFKA_BROKERS=localhost:29092 node infra/verification/order-e2e.mjs
+ *         KAFKA_BROKERS=localhost:29092 [PROVIDER_URL=http://localhost:13010] \
+ *         node infra/verification/order-e2e.mjs
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -24,7 +29,13 @@ const catalog = new URL(process.env.CATALOG_URL ?? "http://localhost:13101");
 const brokers = (process.env.KAFKA_BROKERS ?? "localhost:29092").split(",");
 const scenario = process.env.ORDER_E2E_SCENARIO ?? "happy";
 const stateFile = process.env.ORDER_E2E_STATE ?? ".order-e2e-state.json";
-if (order.hostname !== "localhost" || catalog.hostname !== "localhost") {
+/** Эмулятор платёжного провайдера — когда order работает с настоящим сервисом платежей. */
+const provider = process.env.PROVIDER_URL ? new URL(process.env.PROVIDER_URL) : null;
+if (
+  order.hostname !== "localhost" ||
+  catalog.hostname !== "localhost" ||
+  (provider && provider.hostname !== "localhost")
+) {
   throw new Error("проверка с фиктивными токенами допускается только на localhost");
 }
 
@@ -321,16 +332,27 @@ async function captureFailure() {
   const orderId = placed.body.order.id;
   await waitStatus(orderId, "AWAITING_RESTAURANT");
   const kitchenToken = token(randomUUID(), ["kitchen"], target.restaurantId);
+  // Отказ провайдера на списании включается только сейчас: холд уже прошёл.
+  if (provider) {
+    await request(provider, "/_emulator/settings", "POST", { failOperation: "capture" });
+  }
   const startedAt = performance.now();
   await request(order, `/orders/${orderId}/confirm`, "POST", { cookingMinutes: 15 }, kitchenToken);
-  const done = await waitUntil(
-    async () => {
-      const history = await historyOf(orderId);
-      return history?.saga?.status === "FAILED" ? history : null;
-    },
-    60_000,
-    "система не пришла в согласованное состояние за 60 с",
-  );
+  let done;
+  try {
+    done = await waitUntil(
+      async () => {
+        const history = await historyOf(orderId);
+        return history?.saga?.status === "FAILED" ? history : null;
+      },
+      60_000,
+      "система не пришла в согласованное состояние за 60 с",
+    );
+  } finally {
+    if (provider) {
+      await request(provider, "/_emulator/settings", "POST", { failOperation: null });
+    }
+  }
   const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
   const final = await statusOf(orderId);
   check(
@@ -343,11 +365,50 @@ async function captureFailure() {
     "списание повторялось с задержкой",
   );
   check(steps.includes("VOID_PAYMENT:SUCCEEDED"), "холд снят — деньги клиента возвращены");
+  if (provider) {
+    const atProvider = await request(provider, `/_emulator/orders/${orderId}/payments`);
+    check(
+      atProvider.body.items.length === 1 && atProvider.body.items[0].status === "canceled",
+      "у провайдера ровно один платёж по заказу, холд отменён — деньги не списаны",
+    );
+  }
   check(done.result.pending.length === 0, "висящих шагов и таймеров нет");
   const events = await readTopic("order.events", (value) => value.includes(orderId), 6000);
   const types = events.map((event) => JSON.parse(event.value).eventType);
   check(types.includes("OrderRecalled"), "ресторану отправлен отзыв заказа (OrderRecalled)");
   check(Number(seconds) <= 60, `согласованное состояние за ${seconds} с — REL-5 ≤ 60 с`);
+}
+
+async function paymentDown() {
+  console.log("Сценарий: сервис платежей недоступен (REL-2)");
+  const target = await pickRestaurant();
+  const placed = await placeOrder(target);
+  check(placed.status === 201, `заказ принят (201) за ${placed.ms} мс — приём не ждёт платежей`);
+  const orderId = placed.body.order.id;
+
+  const catalogAlive = await request(catalog, "/ready");
+  check(catalogAlive.status === 200, "каталог работает — отказ платежей его не затронул");
+
+  // Холд повторяется с нарастающей задержкой, затем заказ отменяется.
+  const { ms } = await waitUntil(
+    async () => (await statusOf(orderId))?.status === "CANCELLED",
+    120_000,
+    "заказ не отменён за 120 с",
+  );
+  const final = await statusOf(orderId);
+  check(
+    final.cancelReason === "TECHNICAL" && /оплата не прошла/.test(final.cancelComment ?? ""),
+    `отменён с явной причиной: «${final.cancelComment}» через ${(ms / 1000).toFixed(1)} с`,
+  );
+  // Снятие холда «на всякий случай» будет повторяться, пока сервис платежей
+  // не вернётся: деньги клиента должны быть отпущены наверняка.
+  const history = await historyOf(orderId);
+  const steps = history.saga.steps.map((step) => step.step);
+  check(
+    steps.filter((step) => step === "AUTHORIZE_PAYMENT").length >= 2,
+    "холд повторялся, прежде чем заказ отменили",
+  );
+  writeFileSync(stateFile, JSON.stringify({ orderId }));
 }
 
 async function timeoutStart() {
@@ -384,6 +445,7 @@ async function timeoutCheck() {
 const scenarios = {
   happy,
   "capture-failure": captureFailure,
+  "payment-down": paymentDown,
   "timeout-start": timeoutStart,
   "timeout-check": timeoutCheck,
 };
