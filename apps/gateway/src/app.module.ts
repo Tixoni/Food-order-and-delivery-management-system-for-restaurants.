@@ -15,6 +15,8 @@ import { CatalogClient } from "./catalog/catalog.client";
 import { CatalogEventsConsumer } from "./catalog/catalog-events.consumer";
 import { CatalogResolver } from "./graphql/catalog.resolver";
 import { ManagerResolver } from "./graphql/manager.resolver";
+import { OrderResolver } from "./graphql/order.resolver";
+import { OrderClient } from "./order/order.client";
 import { GqlAuthGuard } from "./graphql/gql-auth.guard";
 
 /**
@@ -95,6 +97,8 @@ const config = loadConfig();
     CatalogEventsConsumer,
     CatalogResolver,
     ManagerResolver,
+    OrderClient,
+    OrderResolver,
   ],
 })
 export class AppModule {}

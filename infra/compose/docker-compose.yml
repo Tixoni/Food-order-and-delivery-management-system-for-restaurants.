@@ -255,6 +255,7 @@ services:
       AUTH_ADMIN_CLIENT_SECRET: ${AUTH_ADMIN_CLIENT_SECRET:-gateway-admin-dev-secret}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:5173}
       CATALOG_URL: http://catalog:3001
+      ORDER_URL: http://order:3002
     ports:
       - "${GATEWAY_PORT:-13000}:3000"
 

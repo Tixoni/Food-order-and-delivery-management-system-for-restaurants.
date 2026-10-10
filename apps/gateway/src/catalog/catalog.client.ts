@@ -60,6 +60,11 @@ export class CatalogClient {
     return this.get(`/restaurants?page=${page}&pageSize=${pageSize}`, token);
   }
 
+  /** Один ресторан — по прямой ссылке на меню и для заказа в истории клиента. */
+  restaurant(token: string | undefined, restaurantId: string): Promise<RestaurantView> {
+    return this.get(`/restaurants/${encodeURIComponent(restaurantId)}`, token);
+  }
+
   /** CAT-1: рестораны, доставляющие по адресу. */
   deliveringTo(
     token: string | undefined,

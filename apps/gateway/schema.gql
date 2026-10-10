@@ -163,6 +163,16 @@ input ModifierOptionInput {
 
 type Mutation {
   """
+  Отменить заказ до начала готовки (ORD-5)
+  """
+  cancelOrder(id: ID!, reason: String): Order!
+
+  """
+  Оформить заказ (ORD-1, ORD-4)
+  """
+  placeOrder(input: PlaceOrderInput!): PlaceOrderResult!
+
+  """
   Зарегистрировать ресторан (ADM-2)
   """
   registerRestaurant(input: RegisterRestaurantInput!): RestaurantDetails!
@@ -225,6 +235,151 @@ type OptionGroup {
   selectionType: SelectionType!
 }
 
+"""
+Заказ (ORD-1, ORD-7, TRK-1)
+"""
+type Order {
+  addressText: String!
+  amounts: OrderAmounts!
+
+  """
+  Может ли клиент отменить заказ сам (ORD-5) — решает сервис заказов
+  """
+  canCancel: Boolean!
+  cancelComment: String
+  cancelReason: String
+  cancelledAt: String
+  comment: String
+  confirmedAt: String
+  deliveredAt: String
+
+  """
+  Время готовки, названное кухней, минуты
+  """
+  expectedCookingMin: Int
+  id: ID!
+  lines: [OrderLine!]!
+
+  """
+  Номер заказа для людей: его называют по телефону
+  """
+  orderNumber: Int!
+  pickedUpAt: String
+  placedAt: String!
+  readyAt: String
+
+  """
+  Ресторан — из каталога; шлюз склеивает ответы двух сервисов
+  """
+  restaurant: Restaurant
+  restaurantId: ID!
+
+  """
+  Код статуса: CREATED, PENDING_PAYMENT, … DELIVERED, CANCELLED
+  """
+  status: String!
+}
+
+"""
+Адрес доставки
+"""
+input OrderAddressInput {
+  latitude: Float!
+  longitude: Float!
+  text: String!
+}
+
+"""
+Суммы заказа, копейки
+"""
+type OrderAmounts {
+  delivery: Int!
+  discount: Int!
+  items: Int!
+  service: Int!
+  total: Int!
+}
+
+"""
+Позиция оформляемого заказа. Цену назначает сервер (ORD-2)
+"""
+input OrderItemInput {
+  itemId: ID!
+  quantity: Int!
+  selections: [OrderSelectionInput!]
+}
+
+"""
+Позиция заказа: снимок названия и цены на момент оформления
+"""
+type OrderLine {
+  lineTotal: Int!
+  menuItemId: ID!
+  name: String!
+  options: [OrderLineOption!]!
+  quantity: Int!
+  unitPrice: Int!
+}
+
+"""
+Выбранный вариант модификатора — снимок на момент оформления
+"""
+type OrderLineOption {
+  name: String!
+  optionId: ID!
+  priceDelta: Int!
+}
+
+"""
+Выбор в группе модификаторов
+"""
+input OrderSelectionInput {
+  groupId: ID!
+  optionIds: [ID!]!
+}
+
+"""
+Переход статуса заказа
+"""
+type OrderTransition {
+  """
+  Кто перевёл: CUSTOMER, RESTAURANT, COURIER, OPERATOR, SYSTEM
+  """
+  actorType: String!
+  at: String!
+  from: String
+  reason: String
+  to: String!
+}
+
+"""
+Оформление заказа (ORD-1)
+"""
+input PlaceOrderInput {
+  address: OrderAddressInput!
+  comment: String
+  contactPhone: String
+
+  """
+  Ключ идемпотентности: создаётся один раз на попытку оформления, повтор формы — тот же заказ
+  """
+  idempotencyKey: String!
+  items: [OrderItemInput!]!
+  restaurantId: ID!
+}
+
+"""
+Результат оформления
+"""
+type PlaceOrderResult {
+  order: Order!
+
+  """
+  Истина — заказ с этим ключом уже был, возвращён прежний (ORD-4)
+  """
+  replayed: Boolean!
+}
+
 type Query {
   """
   Зоны доставки ресторана (ADM-1)
@@ -245,6 +400,26 @@ type Query {
   Категории меню ресторана (CAT-5)
   """
   menuCategories(restaurantId: ID!): [MenuCategory!]!
+
+  """
+  Мои заказы (ORD-7)
+  """
+  myOrders(limit: Int! = 20, offset: Int! = 0): [Order!]!
+
+  """
+  Заказ по идентификатору (TRK-1)
+  """
+  order(id: ID!): Order!
+
+  """
+  Переходы статусов заказа
+  """
+  orderTransitions(id: ID!): [OrderTransition!]!
+
+  """
+  Ресторан по идентификатору
+  """
+  restaurant(id: ID!): Restaurant
 
   """
   Список действующих ресторанов

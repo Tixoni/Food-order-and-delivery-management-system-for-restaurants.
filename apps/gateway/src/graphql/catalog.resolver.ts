@@ -1,5 +1,5 @@
 import { Args, Float, ID, Int, Mutation, Query, Resolver } from "@nestjs/graphql";
-import { ValidationError } from "@food-delivery/shared";
+import { NotFoundError, ValidationError } from "@food-delivery/shared";
 import { Public, ROLES, Roles, type AuthenticatedUser } from "@food-delivery/service-kit";
 import { CatalogCache } from "../catalog/catalog.cache";
 import { CatalogClient } from "../catalog/catalog.client";
@@ -8,6 +8,7 @@ import {
   AvailabilityResult,
   CurrentUserView,
   Menu,
+  Restaurant,
   RestaurantOffer,
   RestaurantPage,
   StopListEntry,
@@ -63,6 +64,23 @@ export class CatalogResolver {
     );
 
     return result.items;
+  }
+
+  /** Один ресторан — для прямой ссылки на меню. Неизвестный — `null`. */
+  @Public()
+  @Query(() => Restaurant, { nullable: true, description: "Ресторан по идентификатору" })
+  async restaurant(
+    @Args("id", { type: () => ID }) id: string,
+    @AccessToken() token?: string,
+  ): Promise<Restaurant | null> {
+    try {
+      return await this.cache.through(this.cache.restaurantKey(id, "summary"), () =>
+        this.catalog.restaurant(token, id),
+      );
+    } catch (error) {
+      if (error instanceof NotFoundError) return null;
+      throw error;
+    }
   }
 
   /** CAT-2: меню ресторана. */
