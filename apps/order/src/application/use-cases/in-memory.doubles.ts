@@ -16,6 +16,7 @@ import { DEFAULT_TIMEOUTS } from "../../domain/order-timeouts";
 import type { Requester } from "../access";
 import type { Cart, CartStore } from "../ports/cart.store";
 import {
+  ConcurrentModificationError,
   DuplicateMessageError,
   DuplicateOrderError,
   type LoadedOrder,
@@ -99,7 +100,7 @@ export class InMemoryOrderStore implements OrderRepository, SagaQueue {
     const storedSaga = this.sagas.get(change.saga.id);
     if (!stored || !storedSaga) throw new ConflictError("заказ не найден при сохранении");
     if (stored.version !== change.order.version || storedSaga.version !== change.saga.version) {
-      throw new ConflictError("заказ изменён одновременно");
+      throw new ConcurrentModificationError("заказ изменён одновременно");
     }
     if (change.inbox) {
       const key = `${change.inbox.consumer}:${change.inbox.messageId}`;

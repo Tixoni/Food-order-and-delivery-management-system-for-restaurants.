@@ -4,6 +4,7 @@ import type { Actor } from "../../domain/order";
 import { assertWorksAt, canSeeOrder, isStaff, type Requester } from "../access";
 import { domain } from "../domain-errors";
 import {
+  ConcurrentModificationError,
   ORDER_REPOSITORY,
   type LoadedOrder,
   type OrderRepository,
@@ -19,9 +20,15 @@ import { ORDER_COMMITTER, type OrderCommitter } from "../saga/order-committer";
  * команда «отменить» не знает, что надо снять холд, — это знает сага.
  *
  * Повтор успешной команды ничего не меняет и ошибкой не считается.
- * Одновременные команды разрешает оптимистичная блокировка: проигравший
- * получает конфликт и перечитывает заказ.
+ * Одновременные записи разрешает оптимистичная блокировка. Проигравшая
+ * команда перечитывает заказ и применяется заново: правила автомата
+ * проверяются на свежем состоянии. Если заказ за это время действительно
+ * ушёл дальше — например, кухня начала готовить, пока клиент нажимал
+ * «отменить», — команда получит настоящий конфликт. А если второй записью
+ * была служебная отметка саги, клиент ошибки не увидит.
  */
+const MAX_ATTEMPTS = 3;
+
 @Injectable()
 export class OrderCommandsUseCase {
   constructor(
@@ -32,37 +39,42 @@ export class OrderCommandsUseCase {
 
   /** ORD-5: клиент отменяет заказ до начала готовки; деньги вернутся полностью. */
   async cancelByCustomer(orderId: string, requester: Requester, comment?: string | null) {
-    const loaded = await this.load(orderId);
-    if (!requester.roles.includes("client") || loaded.order.customerId !== requester.id) {
-      throw new NotFoundError("заказ не найден", { orderId });
-    }
     const actor: Actor = { type: "CUSTOMER", id: requester.id };
-    return this.apply(loaded, () =>
-      loaded.order.cancel(actor, "CUSTOMER", comment ?? null, this.clock()),
+    return this.run(
+      async () => {
+        const loaded = await this.load(orderId);
+        if (!requester.roles.includes("client") || loaded.order.customerId !== requester.id) {
+          throw new NotFoundError("заказ не найден", { orderId });
+        }
+        return loaded;
+      },
+      ({ order }) => order.cancel(actor, "CUSTOMER", comment ?? null, this.clock()),
     );
   }
 
   /** KIT-2: кухня принимает заказ и называет время готовки. */
   async confirm(orderId: string, requester: Requester, cookingMinutes: number) {
-    const loaded = await this.loadForKitchen(orderId, requester);
-    return this.apply(loaded, () =>
-      loaded.order.confirm(Number(cookingMinutes), this.kitchen(requester), this.clock()),
+    return this.run(
+      () => this.loadForKitchen(orderId, requester),
+      ({ order }) => order.confirm(Number(cookingMinutes), this.kitchen(requester), this.clock()),
     );
   }
 
   /** KIT-3: кухня отклоняет заказ с причиной; холд будет снят. */
   async reject(orderId: string, requester: Requester, reason: string) {
     if (!reason?.trim()) throw new ValidationError("укажите причину отклонения");
-    const loaded = await this.loadForKitchen(orderId, requester);
-    return this.apply(loaded, () =>
-      loaded.order.cancel(this.kitchen(requester), "RESTAURANT", reason, this.clock()),
+    return this.run(
+      () => this.loadForKitchen(orderId, requester),
+      ({ order }) => order.cancel(this.kitchen(requester), "RESTAURANT", reason, this.clock()),
     );
   }
 
   /** KIT-4: заказ готов к выдаче курьеру. */
   async markReady(orderId: string, requester: Requester) {
-    const loaded = await this.loadForKitchen(orderId, requester);
-    return this.apply(loaded, () => loaded.order.markReady(this.kitchen(requester), this.clock()));
+    return this.run(
+      () => this.loadForKitchen(orderId, requester),
+      ({ order }) => order.markReady(this.kitchen(requester), this.clock()),
+    );
   }
 
   /**
@@ -77,34 +89,54 @@ export class OrderCommandsUseCase {
   ) {
     this.assertStaff(requester);
     if (!comment?.trim()) throw new ValidationError("укажите причину отмены");
-    const loaded = await this.load(orderId);
-    if (refundAmount != null) {
-      if (!Number.isInteger(refundAmount) || refundAmount < 0) {
-        throw new ValidationError("сумма возврата — целое неотрицательное число копеек");
-      }
-      if (refundAmount > loaded.order.amounts.total) {
-        throw new ValidationError("сумма возврата больше суммы заказа");
-      }
-      loaded.saga.record({ refundTarget: refundAmount });
+    if (refundAmount != null && (!Number.isInteger(refundAmount) || refundAmount < 0)) {
+      throw new ValidationError("сумма возврата — целое неотрицательное число копеек");
     }
     const actor: Actor = { type: "OPERATOR", id: requester.id };
-    return this.apply(loaded, () => loaded.order.cancel(actor, "OPERATOR", comment, this.clock()));
+    return this.run(
+      () => this.load(orderId),
+      ({ order, saga }) => {
+        if (refundAmount != null) {
+          if (refundAmount > order.amounts.total) {
+            throw new ValidationError("сумма возврата больше суммы заказа");
+          }
+          saga.record({ refundTarget: refundAmount });
+        }
+        return order.cancel(actor, "OPERATOR", comment, this.clock());
+      },
+    );
   }
 
   /** Оператор разобрался с заказом из своей очереди. */
   async clearAttention(orderId: string, requester: Requester) {
     this.assertStaff(requester);
-    const loaded = await this.load(orderId);
-    if (!loaded.order.attentionReason) return loaded.order;
-    loaded.order.clearAttention();
-    await this.committer.commit(loaded, this.clock());
-    return loaded.order;
+    return this.run(
+      () => this.load(orderId),
+      ({ order }) => {
+        if (!order.attentionReason) return false;
+        order.clearAttention();
+        return true;
+      },
+    );
   }
 
-  private async apply(loaded: LoadedOrder, command: () => boolean) {
-    const changed = domain(command);
-    if (changed) await this.committer.commit(loaded, this.clock());
-    return loaded.order;
+  /**
+   * Прочитать, применить, сохранить; при одновременной записи — заново,
+   * не больше трёх раз. `change` возвращает, изменилось ли что-нибудь:
+   * повтор уже выполненной команды ничего не сохраняет.
+   */
+  private async run(load: () => Promise<LoadedOrder>, change: (loaded: LoadedOrder) => boolean) {
+    for (let attempt = 1; ; attempt += 1) {
+      const loaded = await load();
+      const changed = domain(() => change(loaded));
+      if (!changed) return loaded.order;
+      try {
+        await this.committer.commit(loaded, this.clock());
+        return loaded.order;
+      } catch (error) {
+        if (!(error instanceof ConcurrentModificationError) || attempt >= MAX_ATTEMPTS) throw error;
+      }
+    }
   }
 
   private async load(orderId: string): Promise<LoadedOrder> {

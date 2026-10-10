@@ -22,6 +22,7 @@ import { OrderCommandsUseCase } from "./order-commands.use-case";
 import { OrderQueriesUseCase } from "./order-queries.use-case";
 import { PlaceOrderUseCase, type PlaceOrderInput } from "./place-order.use-case";
 import type { OrderReadModel, OrderView } from "../ports/order-read-model";
+import { ConcurrentModificationError } from "../ports/order.repository";
 
 const OTHER_RESTAURANT = "11111111-2222-4333-8444-555555555555";
 
@@ -181,6 +182,45 @@ describe("права на заказ (SEC-2)", () => {
   });
 });
 
+describe("одновременные записи", () => {
+  /** Первое сохранение проигрывает: перед ним успевает другая запись. */
+  function loseFirstSave(w: ReturnType<typeof setup>, before: () => Promise<unknown>) {
+    const save = w.store.save.bind(w.store);
+    let lost = false;
+    jest.spyOn(w.store, "save").mockImplementation(async (change) => {
+      if (!lost) {
+        lost = true;
+        await before();
+        throw new ConcurrentModificationError("заказ изменён одновременно");
+      }
+      return save(change);
+    });
+  }
+
+  it("служебная запись саги не превращается для клиента в ошибку отмены", async () => {
+    const w = setup();
+    const { order } = await w.place.execute(w.input(), customer);
+    await w.drain();
+    loseFirstSave(w, async () => undefined);
+
+    const cancelled = await w.commands.cancelByCustomer(order.id, customer);
+
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(w.store.save).toHaveBeenCalledTimes(2);
+  });
+
+  it("если заказ за это время начали готовить — настоящий конфликт", async () => {
+    const w = setup();
+    const { order } = await w.place.execute(w.input(), customer);
+    await w.drain();
+    loseFirstSave(w, () => w.commands.confirm(order.id, kitchen, 15));
+
+    await expect(w.commands.cancelByCustomer(order.id, customer)).rejects.toThrow(
+      /действие недоступно/,
+    );
+  });
+});
+
 describe("чтение заказов", () => {
   const view = (overrides: Partial<OrderView> = {}) =>
     ({
@@ -212,6 +252,20 @@ describe("чтение заказов", () => {
     await expect(queries.kitchenQueue(OTHER_RESTAURANT, kitchen)).rejects.toBeInstanceOf(
       ForbiddenError,
     );
+  });
+
+  it("клиенту приходит признак «можно отменить» по таблице переходов (ORD-5)", async () => {
+    const queries = new OrderQueriesUseCase(
+      readModel([
+        view(),
+        view({ id: "o-2", status: "AWAITING_RESTAURANT" }),
+        view({ id: "o-3", status: "COOKING" }),
+      ]),
+    );
+    const flags = (await queries.listMine(customer)).map((o) => o.customerCanCancel);
+    expect(flags).toEqual([false, true, false]);
+    // Кухне признак не нужен и не отдаётся.
+    await expect(queries.get("o-2", kitchen)).resolves.not.toHaveProperty("customerCanCancel");
   });
 
   it("клиент видит только переходы; шаги саги и таймеры — оператору", async () => {

@@ -1,4 +1,4 @@
-import type { DomainEvent } from "@food-delivery/shared";
+import { ConflictError, type DomainEvent } from "@food-delivery/shared";
 import type { CheckoutSaga } from "../../domain/checkout-saga";
 import type { Order, StatusChange } from "../../domain/order";
 
@@ -78,6 +78,15 @@ export interface OrderRepository {
 }
 
 export const ORDER_REPOSITORY = Symbol("OrderRepository");
+
+/**
+ * Заказ или сага изменены другой записью между чтением и сохранением
+ * (оптимистичная блокировка). Отдельный класс, а не просто конфликт:
+ * команду людей в этом случае имеет смысл перечитать и применить заново —
+ * вторая запись могла быть служебной (отметка о холде из события платежей),
+ * и для клиента это не повод получить ошибку.
+ */
+export class ConcurrentModificationError extends ConflictError {}
 
 export class DuplicateOrderError extends Error {
   constructor() {

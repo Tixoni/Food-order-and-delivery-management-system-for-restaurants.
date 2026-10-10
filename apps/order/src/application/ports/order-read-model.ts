@@ -37,6 +37,12 @@ export interface OrderView {
   cancelReason: string | null;
   cancelComment: string | null;
   attention: { reason: string; at: string } | null;
+  /**
+   * Может ли клиент отменить заказ сам (ORD-5). Заполняется только в ответе
+   * самому клиенту — по таблице переходов домена, чтобы витрина не держала
+   * у себя копию этого правила.
+   */
+  customerCanCancel?: boolean;
 }
 
 export interface StatusHistoryView {

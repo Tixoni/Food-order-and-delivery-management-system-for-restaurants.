@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource, type EntityManager } from "typeorm";
-import { ConflictError, type DomainEvent } from "@food-delivery/shared";
+import type { DomainEvent } from "@food-delivery/shared";
 import { CheckoutSaga } from "../../domain/checkout-saga";
 import type { Order } from "../../domain/order";
 import {
+  ConcurrentModificationError,
   DuplicateMessageError,
   DuplicateOrderError,
   type LoadedOrder,
@@ -199,7 +200,7 @@ export class TypeOrmOrderRepository implements OrderRepository, SagaQueue {
         ],
       );
       if (orderUpdated !== 1)
-        throw new ConflictError("заказ изменён одновременно другим действием");
+        throw new ConcurrentModificationError("заказ изменён одновременно другим действием");
 
       const [, sagaUpdated] = await manager.query(
         `UPDATE order_sagas SET current_step = $3, state = $4, status = $5,
@@ -213,7 +214,9 @@ export class TypeOrmOrderRepository implements OrderRepository, SagaQueue {
           sagaState.status,
         ],
       );
-      if (sagaUpdated !== 1) throw new ConflictError("сага изменена одновременно другим действием");
+      if (sagaUpdated !== 1) {
+        throw new ConcurrentModificationError("сага изменена одновременно другим действием");
+      }
 
       await this.writeRest(manager, change);
     });

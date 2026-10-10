@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ForbiddenError, NotFoundError, ValidationError } from "@food-delivery/shared";
-import { ORDER_STATUSES } from "../../domain/order-status";
+import { ORDER_STATUSES, isTransitionAllowed, type OrderStatus } from "../../domain/order-status";
 import { assertWorksAt, canSeeOrder, isStaff, type Requester } from "../access";
 import {
   ORDER_READ_MODEL,
@@ -24,6 +24,15 @@ const page = (value: number | undefined, fallback: number, max = MAX_PAGE) => {
  * порта, без загрузки агрегата и саги. Права проверяются здесь — до того,
  * как данные уйдут наружу (SEC-2).
  */
+/** Клиенту — признак «можно отменить»; остальным он не нужен. */
+function forCustomer(view: OrderView, requester: Requester): OrderView {
+  if (view.customerId !== requester.id || !requester.roles.includes("client")) return view;
+  return {
+    ...view,
+    customerCanCancel: isTransitionAllowed(view.status as OrderStatus, "CANCELLED", "CUSTOMER"),
+  };
+}
+
 @Injectable()
 export class OrderQueriesUseCase {
   constructor(@Inject(ORDER_READ_MODEL) private readonly read: OrderReadModel) {}
@@ -34,14 +43,19 @@ export class OrderQueriesUseCase {
     if (!view || !canSeeOrder(requester, view)) {
       throw new NotFoundError("заказ не найден", { orderId });
     }
-    return view;
+    return forCustomer(view, requester);
   }
 
   /** ORD-7: история заказов клиента. */
   async listMine(requester: Requester, limit?: number, offset?: number) {
     if (!requester.roles.includes("client"))
       throw new ForbiddenError("история заказов — для клиента");
-    return this.read.listByCustomer(requester.id, page(limit, 20) || 20, page(offset, 0, 10_000));
+    const views = await this.read.listByCustomer(
+      requester.id,
+      page(limit, 20) || 20,
+      page(offset, 0, 10_000),
+    );
+    return views.map((view) => forCustomer(view, requester));
   }
 
   /** KIT-1: очередь кухни своего ресторана. */
