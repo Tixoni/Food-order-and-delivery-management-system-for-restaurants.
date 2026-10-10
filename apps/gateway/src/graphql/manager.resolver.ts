@@ -5,9 +5,12 @@ import { AccessToken } from "./gql.decorators";
 import { MenuItem } from "./catalog.models";
 import {
   DeliveryZone,
+  MenuCategory,
+  ModifierGroupInput,
   RegisterRestaurantInput,
   RestaurantDetails,
   SaveDeliveryZoneInput,
+  SaveMenuCategoryInput,
   SaveMenuItemInput,
 } from "./manager.models";
 
@@ -56,6 +59,47 @@ export class ManagerResolver {
     @AccessToken() token?: string,
   ): Promise<MenuItem> {
     return this.catalog.saveMenuItem(token, input);
+  }
+
+  /** Категории меню, включая скрытые: менеджеру нужны и они. */
+  @Roles(ROLES.manager, ROLES.admin)
+  @Query(() => [MenuCategory], { description: "Категории меню ресторана (CAT-5)" })
+  async menuCategories(
+    @Args("restaurantId", { type: () => ID }) restaurantId: string,
+    @AccessToken() token?: string,
+  ): Promise<MenuCategory[]> {
+    return (await this.catalog.categories(token, restaurantId)).categories;
+  }
+
+  @Roles(ROLES.manager, ROLES.admin)
+  @Mutation(() => MenuCategory, { description: "Создать, переименовать или скрыть категорию" })
+  async saveMenuCategory(
+    @Args("input") input: SaveMenuCategoryInput,
+    @AccessToken() token?: string,
+  ): Promise<MenuCategory> {
+    return this.catalog.saveCategory(token, input);
+  }
+
+  /** CAT-3: модификаторы блюда — заменяются целиком набором групп из редактора. */
+  @Roles(ROLES.manager, ROLES.admin)
+  @Mutation(() => MenuItem, { description: "Заменить модификаторы блюда (CAT-3)" })
+  async replaceModifiers(
+    @Args("itemId", { type: () => ID }) itemId: string,
+    @Args("restaurantId", { type: () => ID }) restaurantId: string,
+    @Args("groups", { type: () => [ModifierGroupInput] }) groups: ModifierGroupInput[],
+    @AccessToken() token?: string,
+  ): Promise<MenuItem> {
+    return this.catalog.replaceModifiers(token, itemId, restaurantId, groups);
+  }
+
+  @Roles(ROLES.manager, ROLES.admin)
+  @Mutation(() => Boolean, { description: "Убрать блюдо из меню (история сохраняется)" })
+  async removeMenuItem(
+    @Args("itemId", { type: () => ID }) itemId: string,
+    @Args("restaurantId", { type: () => ID }) restaurantId: string,
+    @AccessToken() token?: string,
+  ): Promise<boolean> {
+    return (await this.catalog.removeMenuItem(token, itemId, restaurantId)).deleted;
   }
 
   /** ADM-2: регистрация ресторана администратором. */

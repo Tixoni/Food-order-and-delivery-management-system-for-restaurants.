@@ -102,3 +102,12 @@ export interface StopListEntryView {
   isActive: boolean;
   outageMinutes: number;
 }
+
+/** Категория меню в панели менеджера. */
+export interface MenuCategoryView {
+  id: string;
+  restaurantId: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+}

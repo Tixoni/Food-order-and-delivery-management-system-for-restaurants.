@@ -88,6 +88,21 @@ type Menu {
 }
 
 """
+Категория меню — для панели менеджера, включая скрытые
+"""
+type MenuCategory {
+  id: ID!
+
+  """
+  Ложь — категория скрыта из меню клиента
+  """
+  isActive: Boolean!
+  name: String!
+  restaurantId: ID!
+  sortOrder: Int!
+}
+
+"""
 Блюдо меню
 """
 type MenuItem {
@@ -96,6 +111,7 @@ type MenuItem {
   composition: String
   description: String
   id: ID!
+  imageUrl: String
 
   """
   Ложь означает стоп-лист (CAT-4)
@@ -120,6 +136,31 @@ type MenuSection {
   name: String!
 }
 
+"""
+Группа модификаторов в редакторе (CAT-3)
+"""
+input ModifierGroupInput {
+  isRequired: Boolean!
+  maxSelect: Int!
+  minSelect: Int!
+  name: String!
+  options: [ModifierOptionInput!]!
+  selectionType: SelectionType!
+}
+
+"""
+Вариант модификатора в редакторе
+"""
+input ModifierOptionInput {
+  isAvailable: Boolean
+  name: String!
+
+  """
+  Надбавка, копейки; может быть отрицательной
+  """
+  priceDelta: Int!
+}
+
 type Mutation {
   """
   Зарегистрировать ресторан (ADM-2)
@@ -127,9 +168,24 @@ type Mutation {
   registerRestaurant(input: RegisterRestaurantInput!): RestaurantDetails!
 
   """
+  Убрать блюдо из меню (история сохраняется)
+  """
+  removeMenuItem(itemId: ID!, restaurantId: ID!): Boolean!
+
+  """
+  Заменить модификаторы блюда (CAT-3)
+  """
+  replaceModifiers(groups: [ModifierGroupInput!]!, itemId: ID!, restaurantId: ID!): MenuItem!
+
+  """
   Создать или изменить зону доставки (ADM-1)
   """
   saveDeliveryZone(input: SaveDeliveryZoneInput!): DeliveryZone!
+
+  """
+  Создать, переименовать или скрыть категорию
+  """
+  saveMenuCategory(input: SaveMenuCategoryInput!): MenuCategory!
 
   """
   Создать или изменить блюдо (CAT-5)
@@ -186,6 +242,11 @@ type Query {
   menu(includeUnavailable: Boolean! = false, restaurantId: ID!): Menu!
 
   """
+  Категории меню ресторана (CAT-5)
+  """
+  menuCategories(restaurantId: ID!): [MenuCategory!]!
+
+  """
   Список действующих ресторанов
   """
   restaurants(page: Int! = 1, pageSize: Int! = 20): RestaurantPage!
@@ -213,6 +274,7 @@ input RegisterRestaurantInput {
   minOrderAmount: Int
   name: String!
   phone: String
+  timeZone: String
 }
 
 """
@@ -255,6 +317,7 @@ type RestaurantDetails {
   minOrderAmount: Int!
   name: String!
   phone: String
+  timeZone: String!
 }
 
 """
@@ -304,6 +367,17 @@ input SaveDeliveryZoneInput {
 }
 
 """
+Сохранение категории: без id создаётся новая
+"""
+input SaveMenuCategoryInput {
+  id: ID
+  isActive: Boolean
+  name: String
+  restaurantId: ID!
+  sortOrder: Int
+}
+
+"""
 Сохранение блюда: без id создаётся новое (CAT-5)
 """
 input SaveMenuItemInput {
@@ -312,6 +386,7 @@ input SaveMenuItemInput {
   composition: String
   description: String
   id: ID
+  imageUrl: String
   name: String
 
   """

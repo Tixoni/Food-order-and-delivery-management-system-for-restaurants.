@@ -1,4 +1,5 @@
 import { Field, Float, ID, InputType, Int, ObjectType } from "@nestjs/graphql";
+import { SelectionType } from "./catalog.models";
 
 /**
  * Типы схемы для панели менеджера и администратора.
@@ -171,4 +172,73 @@ export class RegisterRestaurantInput {
 
   @Field({ nullable: true })
   timeZone?: string;
+}
+
+@ObjectType({ description: "Категория меню — для панели менеджера, включая скрытые" })
+export class MenuCategory {
+  @Field(() => ID)
+  id!: string;
+
+  @Field(() => ID)
+  restaurantId!: string;
+
+  @Field()
+  name!: string;
+
+  @Field(() => Int)
+  sortOrder!: number;
+
+  @Field({ description: "Ложь — категория скрыта из меню клиента" })
+  isActive!: boolean;
+}
+
+@InputType({ description: "Сохранение категории: без id создаётся новая" })
+export class SaveMenuCategoryInput {
+  @Field(() => ID, { nullable: true })
+  id?: string;
+
+  @Field(() => ID)
+  restaurantId!: string;
+
+  @Field({ nullable: true })
+  name?: string;
+
+  @Field(() => Int, { nullable: true })
+  sortOrder?: number;
+
+  @Field({ nullable: true })
+  isActive?: boolean;
+}
+
+@InputType({ description: "Вариант модификатора в редакторе" })
+export class ModifierOptionInput {
+  @Field()
+  name!: string;
+
+  @Field(() => Int, { description: "Надбавка, копейки; может быть отрицательной" })
+  priceDelta!: number;
+
+  @Field({ nullable: true })
+  isAvailable?: boolean;
+}
+
+@InputType({ description: "Группа модификаторов в редакторе (CAT-3)" })
+export class ModifierGroupInput {
+  @Field()
+  name!: string;
+
+  @Field(() => SelectionType)
+  selectionType!: SelectionType;
+
+  @Field()
+  isRequired!: boolean;
+
+  @Field(() => Int)
+  minSelect!: number;
+
+  @Field(() => Int)
+  maxSelect!: number;
+
+  @Field(() => [ModifierOptionInput])
+  options!: ModifierOptionInput[];
 }

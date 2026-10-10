@@ -4,6 +4,7 @@ import { InternalHttpClient } from "@food-delivery/service-kit";
 import { GATEWAY_CONFIG, type GatewayConfig } from "../config/configuration";
 import type {
   DeliveryZoneView,
+  MenuCategoryView,
   MenuItemView,
   MenuSectionView,
   RestaurantDetailsView,
@@ -172,6 +173,65 @@ export class CatalogClient {
         );
   }
 
+  /** Категории меню ресторана, включая скрытые, — для панели менеджера. */
+  categories(
+    token: string | undefined,
+    restaurantId: string,
+  ): Promise<{ categories: MenuCategoryView[] }> {
+    return this.get(`/restaurants/${encodeURIComponent(restaurantId)}/menu/categories`, token);
+  }
+
+  /** Категория: без идентификатора создаётся, с идентификатором — изменяется. */
+  saveCategory(
+    token: string | undefined,
+    input: {
+      id?: string;
+      restaurantId: string;
+      name?: string;
+      sortOrder?: number;
+      isActive?: boolean;
+    },
+  ): Promise<MenuCategoryView> {
+    const { id, restaurantId, ...rest } = input;
+    return id
+      ? this.send("PATCH", `/menu/categories/${encodeURIComponent(id)}`, token, {
+          ...rest,
+          restaurantId,
+        })
+      : this.send(
+          "POST",
+          `/restaurants/${encodeURIComponent(restaurantId)}/menu/categories`,
+          token,
+          rest,
+        );
+  }
+
+  /** CAT-3: модификаторы блюда заменяются целиком — так редактор не собирает разницу сам. */
+  replaceModifiers(
+    token: string | undefined,
+    itemId: string,
+    restaurantId: string,
+    groups: object[],
+  ): Promise<MenuItemView> {
+    return this.send("PUT", `/menu/items/${encodeURIComponent(itemId)}/modifiers`, token, {
+      restaurantId,
+      groups,
+    });
+  }
+
+  /** Убрать блюдо из меню. История стоп-листа и старые заказы при этом сохраняются. */
+  removeMenuItem(
+    token: string | undefined,
+    itemId: string,
+    restaurantId: string,
+  ): Promise<{ id: string; deleted: boolean }> {
+    return this.send(
+      "DELETE",
+      `/menu/items/${encodeURIComponent(itemId)}?restaurantId=${encodeURIComponent(restaurantId)}`,
+      token,
+    );
+  }
+
   /** ADM-2: регистрация ресторана. */
   registerRestaurant(token: string | undefined, input: object): Promise<RestaurantDetailsView> {
     return this.send("POST", "/restaurants", token, input);
@@ -191,7 +251,7 @@ export class CatalogClient {
   }
 
   private send<T>(
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     path: string,
     token: string | undefined,
     body?: unknown,
