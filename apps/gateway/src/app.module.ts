@@ -16,6 +16,12 @@ import { CatalogEventsConsumer } from "./catalog/catalog-events.consumer";
 import { CatalogResolver } from "./graphql/catalog.resolver";
 import { ManagerResolver } from "./graphql/manager.resolver";
 import { OrderResolver } from "./graphql/order.resolver";
+import { CourierResolver } from "./graphql/courier.resolver";
+import { RealtimeResolver } from "./graphql/realtime.resolver";
+import { RestaurantLookup } from "./graphql/restaurant-lookup";
+import { DeliveryClient } from "./delivery/delivery.client";
+import { EventHub } from "./realtime/event-hub";
+import { PositionRelay, RealtimeEventsConsumer } from "./realtime/realtime-sources";
 import { OrderClient } from "./order/order.client";
 import { GqlAuthGuard } from "./graphql/gql-auth.guard";
 
@@ -54,7 +60,22 @@ const config = loadConfig();
       // Страница для ручных запросов: нужна на защите и при разработке,
       // в рабочем окружении лишняя.
       playground: config.nodeEnv !== "production",
-      context: ({ req }: { req: unknown }) => ({ req }),
+      // Подписки — по WebSocket (graphql-ws), тем же адресом /graphql.
+      // У соединения WebSocket нет заголовков запроса на каждое сообщение,
+      // поэтому токен приходит один раз в параметрах подключения и дальше
+      // подставляется как заголовок: проверка доступа и роли — те же самые.
+      subscriptions: { "graphql-ws": { path: "/graphql" } },
+      context: (input: {
+        req?: unknown;
+        connectionParams?: Record<string, unknown>;
+        extra?: { connectionParams?: Record<string, unknown> };
+      }) => {
+        if (input.req) return { req: input.req };
+        const params = input.connectionParams ?? input.extra?.connectionParams ?? {};
+        const authorization =
+          typeof params.authorization === "string" ? params.authorization : undefined;
+        return { req: { headers: { authorization } } };
+      },
       formatError: (formatted, error) => {
         const original = (error as { originalError?: unknown })?.originalError;
 
@@ -99,6 +120,14 @@ const config = loadConfig();
     ManagerResolver,
     OrderClient,
     OrderResolver,
+    DeliveryClient,
+    RestaurantLookup,
+    CourierResolver,
+    // Реальное время: события из брокера и позиции из Redis → подписчики.
+    EventHub,
+    RealtimeEventsConsumer,
+    PositionRelay,
+    RealtimeResolver,
   ],
 })
 export class AppModule {}

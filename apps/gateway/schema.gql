@@ -15,6 +15,80 @@ type AvailabilityResult {
 }
 
 """
+Экран курьера: он сам, предложение и текущая доставка
+"""
+type CourierDashboard {
+  courier: CourierProfile!
+  delivery: DeliveryTask
+  offer: CourierOffer
+  position: CourierLocation
+}
+
+"""
+Позиция курьера с временем получения
+"""
+type CourierLocation {
+  at: String!
+  latitude: Float!
+  longitude: Float!
+}
+
+"""
+Предложение заказа курьеру (DLV-4)
+"""
+type CourierOffer {
+  delivery: DeliveryTask!
+
+  """
+  До какого времени нужно ответить
+  """
+  expiresAt: String!
+  id: ID!
+
+  """
+  Номер попытки: 2 — заказ уже предлагали другому
+  """
+  sequence: Int!
+}
+
+"""
+Новая позиция курьера заказа
+"""
+type CourierPositionUpdate {
+  at: String!
+  latitude: Float!
+  longitude: Float!
+  orderId: ID!
+}
+
+"""
+Курьер
+"""
+type CourierProfile {
+  fullName: String!
+  id: ID!
+
+  """
+  offline — не на смене, available — свободен, assigned — предложен заказ, busy — везёт
+  """
+  status: String!
+
+  """
+  foot, bike, car
+  """
+  vehicleType: String!
+}
+
+"""
+Курьеру что-то предложили или доставка изменилась — перечитать экран
+"""
+type CourierSignal {
+  at: String!
+  kind: String!
+  orderId: ID!
+}
+
+"""
 Кто вошёл в систему
 """
 type CurrentUserView {
@@ -31,6 +105,39 @@ type CurrentUserView {
   Роли: client, manager, kitchen, courier, operator, admin
   """
   roles: [String!]!
+}
+
+"""
+Доставка глазами курьера: откуда, куда, кому
+"""
+type DeliveryTask {
+  """
+  Телефон клиента — только после того, как курьер принял заказ
+  """
+  contactPhone: String
+  dropoff: GeoPoint!
+  dropoffAddress: String
+  id: ID!
+  orderId: ID!
+  orderNumber: Int
+  pickedUpAt: String
+  pickup: GeoPoint!
+
+  """
+  Когда заказ будет готов
+  """
+  readyAt: String
+
+  """
+  Ресторан — из каталога: шлюз склеивает ответы сервисов
+  """
+  restaurant: Restaurant
+  restaurantId: ID
+
+  """
+  PENDING, ASSIGNED, PICKED_UP, DELIVERED, CANCELLED
+  """
+  status: String!
 }
 
 """
@@ -63,6 +170,14 @@ type DeliveryZone {
 type DeliveryZoneRef {
   id: ID!
   name: String!
+}
+
+"""
+Точка на карте
+"""
+type GeoPoint {
+  latitude: Float!
+  longitude: Float!
 }
 
 """
@@ -163,9 +278,34 @@ input ModifierOptionInput {
 
 type Mutation {
   """
+  Принять предложение в срок (DLV-4)
+  """
+  acceptOffer(id: ID!): DeliveryTask!
+
+  """
   Отменить заказ до начала готовки (ORD-5)
   """
   cancelOrder(id: ID!, reason: String): Order!
+
+  """
+  Принять заказ с временем готовки (KIT-2)
+  """
+  confirmOrder(cookingMinutes: Int!, id: ID!): Order!
+
+  """
+  Вручил заказ клиенту (DLV-5)
+  """
+  markDelivered(deliveryId: ID!): DeliveryTask!
+
+  """
+  Заказ готов к выдаче (KIT-4)
+  """
+  markOrderReady(id: ID!): Order!
+
+  """
+  Забрал заказ в ресторане (DLV-5)
+  """
+  markPickedUp(deliveryId: ID!): DeliveryTask!
 
   """
   Оформить заказ (ORD-1, ORD-4)
@@ -176,6 +316,16 @@ type Mutation {
   Зарегистрировать ресторан (ADM-2)
   """
   registerRestaurant(input: RegisterRestaurantInput!): RestaurantDetails!
+
+  """
+  Отказаться — заказ уйдёт следующему курьеру
+  """
+  rejectOffer(id: ID!): Boolean!
+
+  """
+  Отклонить заказ с причиной (KIT-3)
+  """
+  rejectOrder(id: ID!, reason: String!): Order!
 
   """
   Убрать блюдо из меню (история сохраняется)
@@ -203,6 +353,11 @@ type Mutation {
   saveMenuItem(input: SaveMenuItemInput!): MenuItem!
 
   """
+  На смену и со смены (DLV-1)
+  """
+  setCourierShift(onShift: Boolean!): CourierProfile!
+
+  """
   Убрать блюдо из продажи или вернуть (CAT-4)
   """
   setMenuItemAvailability(
@@ -211,6 +366,11 @@ type Mutation {
     reason: String
     restaurantId: ID!
   ): AvailabilityResult!
+
+  """
+  Координата курьера — раз в 5–10 с (DLV-2)
+  """
+  updateCourierLocation(accuracy: Float, latitude: Float!, longitude: Float!): Boolean!
 
   """
   Изменить сведения о ресторане (ADM-2)
@@ -269,6 +429,11 @@ type Order {
   readyAt: String
 
   """
+  KIT-5: до какого времени ресторан должен принять заказ — в очереди кухни
+  """
+  respondBy: String
+
+  """
   Ресторан — из каталога; шлюз склеивает ответы двух сервисов
   """
   restaurant: Restaurant
@@ -298,6 +463,25 @@ type OrderAmounts {
   items: Int!
   service: Int!
   total: Int!
+}
+
+"""
+Где курьер заказа (TRK-2)
+"""
+type OrderCourierPosition {
+  dropoff: GeoPoint!
+  orderId: ID!
+  pickup: GeoPoint!
+
+  """
+  Нет — курьер ещё не назначен или его позиция устарела
+  """
+  position: CourierLocation
+
+  """
+  Статус доставки
+  """
+  status: String!
 }
 
 """
@@ -353,6 +537,17 @@ type OrderTransition {
 }
 
 """
+Статус заказа изменился (NTF-1)
+"""
+type OrderUpdate {
+  at: String!
+  orderId: ID!
+  previousStatus: String
+  restaurantId: ID!
+  status: String!
+}
+
+"""
 Оформление заказа (ORD-1)
 """
 input PlaceOrderInput {
@@ -382,9 +577,24 @@ type PlaceOrderResult {
 
 type Query {
   """
+  Экран курьера: смена, предложение, доставка
+  """
+  courierDashboard: CourierDashboard!
+
+  """
+  Позиция курьера заказа (TRK-2)
+  """
+  courierPosition(orderId: ID!): OrderCourierPosition!
+
+  """
   Зоны доставки ресторана (ADM-1)
   """
   deliveryZones(restaurantId: ID!): [DeliveryZone!]!
+
+  """
+  Очередь кухни: принять, готовить, отдать (KIT-1)
+  """
+  kitchenQueue(restaurantId: ID): [Order!]!
 
   """
   Кто вошёл в систему
@@ -603,6 +813,28 @@ type StopListEntry {
   Когда блюдо убрали из продажи
   """
   stoppedAt: String!
+}
+
+type Subscription {
+  """
+  Позиция курьера
+  """
+  courierPositionUpdated(orderId: ID!): CourierPositionUpdate!
+
+  """
+  Событие для курьера
+  """
+  courierUpdated: CourierSignal!
+
+  """
+  Очередь кухни изменилась
+  """
+  kitchenQueueChanged(restaurantId: ID): OrderUpdate!
+
+  """
+  Статус заказа изменился
+  """
+  orderUpdated(orderId: ID!): OrderUpdate!
 }
 
 """

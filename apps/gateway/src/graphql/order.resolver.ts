@@ -9,23 +9,15 @@ import {
   ResolveField,
   Resolver,
 } from "@nestjs/graphql";
-import { ValidationError, createLogger, type Logger } from "@food-delivery/shared";
-import { ROLES, Roles } from "@food-delivery/service-kit";
-import { Inject } from "@nestjs/common";
-import { CatalogCache } from "../catalog/catalog.cache";
-import { CatalogClient } from "../catalog/catalog.client";
+import { ForbiddenError, ValidationError } from "@food-delivery/shared";
+import { ROLES, Roles, type AuthenticatedUser } from "@food-delivery/service-kit";
 import type { RestaurantView } from "../catalog/catalog.views";
-import { GATEWAY_CONFIG, type GatewayConfig } from "../config/configuration";
 import { OrderClient } from "../order/order.client";
 import type { OrderView } from "../order/order.views";
 import { Restaurant } from "./catalog.models";
-import { AccessToken } from "./gql.decorators";
+import { AccessToken, GqlUser } from "./gql.decorators";
 import { Order, OrderTransition, PlaceOrderInput, PlaceOrderResult } from "./order.models";
-
-/** Контекст одного запроса GraphQL: здесь живёт кэш ресторанов этого запроса. */
-interface RequestContext {
-  restaurants?: Map<string, Promise<RestaurantView | null>>;
-}
+import { RestaurantLookup, type LookupContext } from "./restaurant-lookup";
 
 const MAX_COMMENT = 500;
 
@@ -36,28 +28,19 @@ const toOrder = (view: OrderView): Order => ({
 });
 
 /**
- * Заказы клиента: оформление, история, отслеживание, отмена.
+ * Заказы: клиенту — оформление, история, отслеживание, отмена;
+ * кухне — очередь и команды (KIT-1..4).
  *
  * Шлюз здесь делает то, ради чего он BFF: склеивает ответы двух сервисов
  * в один ответ экрану. Заказ приходит из `order`, название ресторана —
  * из `catalog`; клиентское приложение делает один запрос вместо двух.
- * Если каталог недоступен, заказ всё равно отдаётся — без названия
- * ресторана: экран отслеживания важнее подписи на нём (REL-2).
  */
 @Resolver(() => Order)
 export class OrderResolver {
-  private readonly logger: Logger;
-
   constructor(
     private readonly orders: OrderClient,
-    private readonly catalog: CatalogClient,
-    private readonly cache: CatalogCache,
-    @Inject(GATEWAY_CONFIG) config: GatewayConfig,
-  ) {
-    this.logger = createLogger({ service: "gateway", level: config.logLevel }).child({
-      component: "order-resolver",
-    });
-  }
+    private readonly restaurants: RestaurantLookup,
+  ) {}
 
   /** ORD-1, ORD-4: оформление заказа из корзины. */
   @Roles(ROLES.client)
@@ -127,32 +110,72 @@ export class OrderResolver {
     return toOrder(await this.orders.cancel(token, id, reason ?? null));
   }
 
+  /* ─────────────── Кухня (KIT-1..4) ─────────────── */
+
   /**
-   * Ресторан заказа. В истории двадцать заказов чаще всего из двух-трёх
-   * ресторанов: в пределах одного запроса каждый ресторан запрашивается
-   * один раз, между запросами — берётся из общего кэша каталога.
+   * KIT-1: очередь кухни. Ресторан — из токена сотрудника: кухня видит
+   * только свой ресторан; администратору — любой, по аргументу.
    */
+  @Roles(ROLES.kitchen, ROLES.manager, ROLES.admin)
+  @Query(() => [Order], { description: "Очередь кухни: принять, готовить, отдать (KIT-1)" })
+  async kitchenQueue(
+    @Args("restaurantId", { type: () => ID, nullable: true }) restaurantId?: string,
+    @GqlUser() user?: AuthenticatedUser,
+    @AccessToken() token?: string,
+  ): Promise<Order[]> {
+    const target = restaurantOf(user, restaurantId);
+    return (await this.orders.kitchenQueue(token, target)).map(toOrder);
+  }
+
+  /** KIT-2: принять заказ и назвать время готовки. */
+  @Roles(ROLES.kitchen, ROLES.manager, ROLES.admin)
+  @Mutation(() => Order, { description: "Принять заказ с временем готовки (KIT-2)" })
+  async confirmOrder(
+    @Args("id", { type: () => ID }) id: string,
+    @Args("cookingMinutes", { type: () => Int }) cookingMinutes: number,
+    @AccessToken() token?: string,
+  ): Promise<Order> {
+    return toOrder(await this.orders.kitchenCommand(token, id, "confirm", { cookingMinutes }));
+  }
+
+  /** KIT-3: отклонить с причиной; холд снимется. */
+  @Roles(ROLES.kitchen, ROLES.manager, ROLES.admin)
+  @Mutation(() => Order, { description: "Отклонить заказ с причиной (KIT-3)" })
+  async rejectOrder(
+    @Args("id", { type: () => ID }) id: string,
+    @Args("reason") reason: string,
+    @AccessToken() token?: string,
+  ): Promise<Order> {
+    if (reason.length > MAX_COMMENT) throw new ValidationError("причина длиннее 500 символов");
+    return toOrder(await this.orders.kitchenCommand(token, id, "reject", { reason }));
+  }
+
+  /** KIT-4: заказ готов к выдаче курьеру. */
+  @Roles(ROLES.kitchen, ROLES.manager, ROLES.admin)
+  @Mutation(() => Order, { description: "Заказ готов к выдаче (KIT-4)" })
+  async markOrderReady(
+    @Args("id", { type: () => ID }) id: string,
+    @AccessToken() token?: string,
+  ): Promise<Order> {
+    return toOrder(await this.orders.kitchenCommand(token, id, "ready"));
+  }
+
   @ResolveField(() => Restaurant, { nullable: true })
   restaurant(
     @Parent() order: Order,
-    @Context() context: RequestContext,
+    @Context() context: LookupContext,
   ): Promise<RestaurantView | null> {
-    context.restaurants ??= new Map();
-    let pending = context.restaurants.get(order.restaurantId);
-    if (!pending) {
-      pending = this.cache
-        .through(this.cache.restaurantKey(order.restaurantId, "summary"), () =>
-          this.catalog.restaurant(undefined, order.restaurantId),
-        )
-        .catch((error: unknown) => {
-          this.logger.warn("ресторан заказа не получен из каталога", {
-            restaurantId: order.restaurantId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return null;
-        });
-      context.restaurants.set(order.restaurantId, pending);
-    }
-    return pending;
+    return this.restaurants.find(order.restaurantId, context);
   }
+}
+
+/** Ресторан сотрудника — из токена; администратор указывает его сам. */
+export function restaurantOf(user: AuthenticatedUser | undefined, requested?: string): string {
+  if (user?.roles.includes("admin") && requested) return requested;
+  const own = user?.restaurantId;
+  if (!own) throw new ForbiddenError("учётная запись не привязана к ресторану");
+  if (requested && requested !== own) {
+    throw new ForbiddenError("очередь доступна только кухне своего ресторана");
+  }
+  return own;
 }

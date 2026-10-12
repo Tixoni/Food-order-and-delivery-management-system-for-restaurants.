@@ -77,6 +77,31 @@ export class OrderClient {
     return history.transitions;
   }
 
+  /** KIT-1: очередь кухни ресторана. Права — у сервиса заказов (кухня своего ресторана). */
+  async kitchenQueue(token: string | undefined, restaurantId: string): Promise<OrderView[]> {
+    const result = await this.http.request<{ items: OrderView[] }>({
+      method: "GET",
+      path: `/restaurants/${encodeURIComponent(restaurantId)}/kitchen-queue`,
+      ...(token ? { token } : {}),
+    });
+    return result.items;
+  }
+
+  /** KIT-2, KIT-3, KIT-4: команды кухни. Не повторяются: повтор вернул бы конфликт. */
+  kitchenCommand(
+    token: string | undefined,
+    orderId: string,
+    command: "confirm" | "reject" | "ready",
+    body: Record<string, unknown> = {},
+  ): Promise<OrderView> {
+    return this.http.request({
+      method: "POST",
+      path: `/orders/${encodeURIComponent(orderId)}/${command}`,
+      body,
+      ...(token ? { token } : {}),
+    });
+  }
+
   /** ORD-5: отмена клиентом до начала готовки. */
   cancel(token: string | undefined, orderId: string, reason: string | null): Promise<OrderView> {
     return this.http.request({

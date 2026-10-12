@@ -43,11 +43,22 @@ export class TypeOrmOrderReadModel implements OrderReadModel {
     ]);
   }
 
-  kitchenQueue(restaurantId: string) {
-    return this.select(
+  async kitchenQueue(restaurantId: string) {
+    const views = await this.select(
       `WHERE o.restaurant_id = $1 AND o.status = ANY($2::varchar[]) ORDER BY o.placed_at`,
       [restaurantId, KITCHEN_STATUSES],
     );
+    if (views.length === 0) return views;
+    // Срок ответа ресторана — из того же таймера, по которому заказ
+    // отменится сам (KIT-5): экран показывает ровно тот срок, что действует.
+    const deadlines = (await this.dataSource.query(
+      `SELECT order_id, fire_at FROM saga_timers
+        WHERE order_id = ANY($1::uuid[])
+          AND timer_type = 'TIMEOUT:AWAITING_RESTAURANT' AND fired_at IS NULL`,
+      [views.map((view) => view.id)],
+    )) as Array<{ order_id: string; fire_at: Date }>;
+    const byOrder = new Map(deadlines.map((row) => [row.order_id, row.fire_at.toISOString()]));
+    return views.map((view) => ({ ...view, respondBy: byOrder.get(view.id) ?? null }));
   }
 
   list(filter: OrderListFilter) {

@@ -43,6 +43,12 @@ export interface OrderView {
    * у себя копию этого правила.
    */
   customerCanCancel?: boolean;
+  /**
+   * KIT-5: до какого времени ресторан должен принять заказ — срок
+   * персистентного таймера, по которому заказ отменится сам. Заполняется
+   * в очереди кухни.
+   */
+  respondBy?: string | null;
 }
 
 export interface StatusHistoryView {

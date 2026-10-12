@@ -33,6 +33,8 @@ export interface OrderView {
   cancelReason: string | null;
   cancelComment: string | null;
   customerCanCancel?: boolean;
+  /** KIT-5: срок ответа ресторана — в очереди кухни. */
+  respondBy?: string | null;
 }
 
 export interface OrderTransitionView {

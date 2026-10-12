@@ -43,6 +43,8 @@ export interface ServiceConfig {
     catalog: string;
     /** Сервис заказов: оформление, история, отслеживание. */
     order: string;
+    /** Сервис доставки: курьеры, предложения, позиция курьера. */
+    delivery: string;
     /**
      * Сколько шлюз ждёт ответа сервиса. Предел нужен обязательно: без него
      * зависший сосед удерживает соединения шлюза, и через несколько минут
@@ -117,6 +119,7 @@ export function loadConfig(): ServiceConfig {
     services: {
       catalog: required("CATALOG_URL", "http://localhost:3001"),
       order: required("ORDER_URL", "http://localhost:3002"),
+      delivery: required("DELIVERY_URL", "http://localhost:3004"),
       timeoutMs: numeric("SERVICE_TIMEOUT_MS", 3000),
     },
     kafka: {

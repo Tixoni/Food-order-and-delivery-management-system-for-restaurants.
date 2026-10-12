@@ -1,11 +1,12 @@
-import { ExternalServiceError } from "@food-delivery/shared";
+import { ExternalServiceError, ForbiddenError } from "@food-delivery/shared";
 import type { CatalogCache } from "../catalog/catalog.cache";
 import type { CatalogClient } from "../catalog/catalog.client";
 import { loadConfig } from "../config/configuration";
 import type { OrderClient } from "../order/order.client";
 import type { OrderView } from "../order/order.views";
 import type { Order } from "./order.models";
-import { OrderResolver } from "./order.resolver";
+import { OrderResolver, restaurantOf } from "./order.resolver";
+import { RestaurantLookup } from "./restaurant-lookup";
 
 const view = (overrides: Partial<OrderView> = {}): OrderView => ({
   id: "o-1",
@@ -36,11 +37,12 @@ describe("OrderResolver", () => {
     through: (_key: string, load: () => Promise<unknown>) => load(),
     restaurantKey: (id: string, suffix: string) => `${id}:${suffix}`,
   } as unknown as CatalogCache;
-  const orders = { mine: jest.fn(), place: jest.fn() } as unknown as jest.Mocked<OrderClient>;
-  const resolver = new OrderResolver(orders, { restaurant } as unknown as CatalogClient, cache, {
+  const orders = { mine: jest.fn() } as unknown as jest.Mocked<OrderClient>;
+  const lookup = new RestaurantLookup({ restaurant } as unknown as CatalogClient, cache, {
     ...loadConfig(),
     logLevel: "error",
   });
+  const resolver = new OrderResolver(orders, lookup);
 
   beforeEach(() => {
     restaurant.mockReset();
@@ -73,5 +75,20 @@ describe("OrderResolver", () => {
     restaurant.mockRejectedValue(new ExternalServiceError("catalog временно недоступен"));
 
     await expect(resolver.restaurant({ restaurantId: "r-1" } as Order, {})).resolves.toBeNull();
+  });
+});
+
+describe("ресторан сотрудника для очереди кухни", () => {
+  const kitchen = { id: "k-1", roles: ["kitchen"], restaurantId: "r-1" } as never;
+
+  it("кухня видит только свой ресторан", () => {
+    expect(restaurantOf(kitchen)).toBe("r-1");
+    expect(restaurantOf(kitchen, "r-1")).toBe("r-1");
+    expect(() => restaurantOf(kitchen, "r-2")).toThrow(ForbiddenError);
+  });
+
+  it("без привязки к ресторану — отказ; администратор выбирает сам", () => {
+    expect(() => restaurantOf({ id: "k-2", roles: ["kitchen"] } as never)).toThrow("не привязана");
+    expect(restaurantOf({ id: "a-1", roles: ["admin"] } as never, "r-9")).toBe("r-9");
   });
 });

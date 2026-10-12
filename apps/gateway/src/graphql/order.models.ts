@@ -121,6 +121,12 @@ export class Order {
 
   @Field({ description: "Может ли клиент отменить заказ сам (ORD-5) — решает сервис заказов" })
   canCancel!: boolean;
+
+  @Field(() => String, {
+    nullable: true,
+    description: "KIT-5: до какого времени ресторан должен принять заказ — в очереди кухни",
+  })
+  respondBy?: string | null;
 }
 
 @ObjectType({ description: "Переход статуса заказа" })
