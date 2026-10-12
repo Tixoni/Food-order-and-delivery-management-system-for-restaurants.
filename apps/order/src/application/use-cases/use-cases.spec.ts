@@ -28,13 +28,20 @@ const OTHER_RESTAURANT = "11111111-2222-4333-8444-555555555555";
 
 function setup() {
   const world = buildWorld();
-  const place = new PlaceOrderUseCase(
+  const placeUseCase = new PlaceOrderUseCase(
     world.store,
     world.catalog,
     world.carts,
     world.workflow,
     TEST_SETTINGS,
   );
+  // Оформление — по часам тестового мира, а не по настоящим: иначе шаги
+  // саги планируются «из будущего» относительно часов мира, и тесты
+  // начинают падать в тот день, когда реальная дата их обгонит.
+  const place = {
+    execute: (input: PlaceOrderInput, requester: Requester, now = world.store.clock) =>
+      placeUseCase.execute(input, requester, now),
+  };
   const commands = new OrderCommandsUseCase(world.store, world.committer, () => world.store.clock);
   const carts = new CartUseCases(world.carts, world.catalog, TEST_SETTINGS);
   const input = (overrides: Partial<PlaceOrderInput> = {}): PlaceOrderInput => ({
