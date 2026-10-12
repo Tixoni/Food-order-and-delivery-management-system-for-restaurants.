@@ -171,6 +171,19 @@ jobs:
           npm run db:migrate
           npm test -w @food-delivery/payment -- payment.integration
 
+      # Подбор курьера держат пространственный индекс и блокировки строк:
+      # ближайший в радиусе, один курьер — одному заказу, таймер в базе (DLV-3, DLV-4).
+      - name: Интеграционные тесты доставки на PostgreSQL + PostGIS
+        env:
+          DELIVERY_DB: delivery_verify_db
+          MIGRATION_SERVICE: delivery
+          DELIVERY_INTEGRATION_DB_URL: postgres://app:app@localhost:5432/delivery_verify_db
+        run: |
+          PGPASSWORD=app psql -h localhost -U app -d app -c "CREATE DATABASE delivery_verify_db"
+          PGPASSWORD=app psql -h localhost -U app -d delivery_verify_db -c "CREATE EXTENSION IF NOT EXISTS postgis"
+          npm run db:migrate
+          npm test -w @food-delivery/delivery -- delivery.integration
+
       - name: Проверка географического запроса
         run: |
           PGPASSWORD=app psql -h localhost -U app -d catalog_db -tAc "

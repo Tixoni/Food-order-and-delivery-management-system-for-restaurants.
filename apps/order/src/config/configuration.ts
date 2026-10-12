@@ -47,7 +47,8 @@ export interface OrderConfig {
      */
     /** `internalToken` — служебный токен внутреннего API платёжного сервиса. */
     payment: { mode: "http" | "stub"; url: string; internalToken: string };
-    delivery: { mode: "http" | "stub"; url: string };
+    /** `internalToken` — служебный токен внутреннего API сервиса доставки. */
+    delivery: { mode: "http" | "stub"; url: string; internalToken: string };
     timeoutMs: number;
     breaker: { failureThreshold: number; openDurationMs: number };
   };
@@ -183,6 +184,7 @@ export function loadConfig(): OrderConfig {
       delivery: {
         mode: mode("DELIVERY_MODE"),
         url: required("DELIVERY_URL", "http://localhost:13004"),
+        internalToken: required("DELIVERY_INTERNAL_TOKEN", "delivery-internal-dev-token"),
       },
       timeoutMs: numeric("SERVICE_TIMEOUT_MS", 2000),
       breaker: {

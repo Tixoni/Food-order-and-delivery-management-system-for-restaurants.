@@ -233,6 +233,7 @@ export class SagaRunner {
       pickup,
       dropoff: order.location,
       readyAt: readyAt.toISOString(),
+      customerId: order.customerId,
     };
     const started = new Date();
     try {

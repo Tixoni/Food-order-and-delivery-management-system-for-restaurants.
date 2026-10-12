@@ -119,6 +119,8 @@ export interface RequestCourierRequest {
   dropoff: { latitude: number; longitude: number };
   /** Когда заказ будет готов — курьера нет смысла звать раньше. */
   readyAt: string;
+  /** Клиент заказа: только ему доставка показывает позицию курьера (SEC-7). */
+  customerId?: string;
 }
 
 export interface RequestCourierResponse {

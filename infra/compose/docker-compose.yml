@@ -300,7 +300,8 @@ services:
       PAYMENT_MODE: ${PAYMENT_MODE:-http}
       PAYMENT_URL: http://payment:3003
       PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:-payment-internal-dev-token}
-      DELIVERY_MODE: ${DELIVERY_MODE:-stub}
+      DELIVERY_MODE: ${DELIVERY_MODE:-http}
+      DELIVERY_INTERNAL_TOKEN: ${DELIVERY_INTERNAL_TOKEN:-delivery-internal-dev-token}
       DELIVERY_URL: http://delivery:3004
       PAYMENT_STUB_FAIL_OPERATION: ${PAYMENT_STUB_FAIL_OPERATION:-}
     ports:
@@ -383,6 +384,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -392,6 +399,17 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
       DELIVERY_DB: ${DELIVERY_DB:-delivery_db}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: kafka:9092
+      KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
+      AUTH_AUDIENCE: food-delivery-api
+      DELIVERY_INTERNAL_TOKEN: ${DELIVERY_INTERNAL_TOKEN:-delivery-internal-dev-token}
+      ALLOW_DEV_SECRETS: ${ALLOW_DEV_SECRETS:-true}
+      # Сроки подбора: радиус 3 км (DLV-3) и 90 с на ответ курьера (DLV-4)
+      DISPATCH_RADIUS_METERS: ${DISPATCH_RADIUS_METERS:-3000}
+      OFFER_TTL_SECONDS: ${OFFER_TTL_SECONDS:-90}
     ports:
       - "${DELIVERY_PORT:-13004}:3004"
 

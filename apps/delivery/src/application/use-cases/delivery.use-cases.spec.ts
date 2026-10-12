@@ -1,0 +1,282 @@
+import { randomUUID } from "node:crypto";
+import { DELIVERY_EVENT_TYPES } from "@food-delivery/contracts";
+import {
+  ConflictError,
+  DomainRuleError,
+  ForbiddenError,
+  NotFoundError,
+} from "@food-delivery/shared";
+import type { CourierState } from "../../domain/courier";
+import { CourierUseCase } from "./courier.use-case";
+import { DispatchUseCase } from "./dispatch.use-case";
+import { InMemoryDeliveryRepository, InMemoryPositions } from "./in-memory.doubles";
+import { TrackingUseCase } from "./tracking.use-case";
+
+const RESTAURANT = { latitude: 55.75, longitude: 37.6 };
+const CLIENT = { latitude: 55.76, longitude: 37.62 };
+const SETTINGS = { radiusMeters: 3000, offerTtlSeconds: 90, freshSeconds: 120 };
+
+/** Точка в `meters` к северу от ресторана. */
+const north = (meters: number) => ({
+  latitude: RESTAURANT.latitude + meters / 111_195,
+  longitude: RESTAURANT.longitude,
+});
+
+function setup() {
+  const repo = new InMemoryDeliveryRepository();
+  const positions = new InMemoryPositions();
+  const dispatch = new DispatchUseCase(repo, SETTINGS);
+  const couriers = new CourierUseCase(repo, positions, positions, dispatch);
+  const tracking = new TrackingUseCase(repo, positions);
+
+  const addCourier = (
+    name: string,
+    at: { latitude: number; longitude: number },
+    overrides: Partial<CourierState> = {},
+  ) => {
+    const state: CourierState = {
+      id: randomUUID(),
+      userId: randomUUID(),
+      fullName: name,
+      phone: null,
+      vehicleType: "bike",
+      status: "available",
+      currentDeliveryId: null,
+      isActive: true,
+      lastLocation: at,
+      lastLocationAt: new Date(),
+      ...overrides,
+    };
+    repo.addCourier(state);
+    return { id: state.id, userId: state.userId! };
+  };
+
+  const orderId = randomUUID();
+  const customerId = randomUUID();
+  const request = (key = `${orderId}:courier:1`) =>
+    dispatch.requestCourier({
+      orderId,
+      restaurantId: randomUUID(),
+      customerId,
+      idempotencyKey: key,
+      pickup: RESTAURANT,
+      dropoff: CLIENT,
+      readyAt: new Date().toISOString(),
+    });
+  const openOffer = (courierId: string) =>
+    [...repo.offers.values()].find((o) => o.courierId === courierId && !o.response);
+
+  return {
+    repo,
+    positions,
+    dispatch,
+    couriers,
+    tracking,
+    addCourier,
+    orderId,
+    customerId,
+    request,
+    openOffer,
+  };
+}
+
+describe("подбор курьера (DLV-3)", () => {
+  it("предлагает заказ ближайшему свободному в радиусе 3 км", async () => {
+    const w = setup();
+    const far = w.addCourier("далёкий", north(2500));
+    const near = w.addCourier("ближний", north(400));
+    w.addCourier("за радиусом", north(3500));
+    w.addCourier("занят", north(100), { status: "busy" });
+    w.addCourier("без связи", north(50), { lastLocationAt: new Date(Date.now() - 10 * 60_000) });
+
+    const result = await w.request();
+
+    expect(result.status).toBe("PENDING");
+    expect(w.openOffer(near.id)).toBeDefined();
+    expect(w.openOffer(far.id)).toBeUndefined();
+    expect(w.repo.couriers.get(near.id)?.status).toBe("assigned");
+    expect(w.repo.eventsOfType(DELIVERY_EVENT_TYPES.courierAssigned)).toHaveLength(1);
+  });
+
+  it("повтор запроса с тем же ключом не создаёт вторую доставку и второе предложение", async () => {
+    const w = setup();
+    w.addCourier("ближний", north(400));
+    const first = await w.request();
+    const second = await w.request();
+
+    expect(second.deliveryId).toBe(first.deliveryId);
+    expect(w.repo.deliveries.size).toBe(1);
+    expect(w.repo.offers.size).toBe(1);
+  });
+
+  it("кандидатов нет — одно событие CourierNotFound; новый запрос от order ищет заново", async () => {
+    const w = setup();
+    await w.request();
+    await w.dispatch.offerNext([...w.repo.deliveries.keys()][0]);
+    expect(w.repo.eventsOfType(DELIVERY_EVENT_TYPES.courierNotFound)).toHaveLength(1);
+
+    const fresh = w.addCourier("вышел на смену", north(300));
+    await w.request(`${w.orderId}:courier:2`);
+    expect(w.openOffer(fresh.id)).toBeDefined();
+  });
+});
+
+describe("назначение и переназначение (DLV-4)", () => {
+  it("молчание 90 с — предложение следующему, цепочка попыток видна", async () => {
+    const w = setup();
+    const first = w.addCourier("первый", north(200));
+    const second = w.addCourier("второй", north(800));
+    await w.request();
+
+    const expired = await w.dispatch.expireOffers(new Date(Date.now() + 91_000));
+
+    expect(expired).toBe(1);
+    expect(w.repo.couriers.get(first.id)?.status).toBe("available");
+    const offer = w.openOffer(second.id);
+    expect(offer?.sequence).toBe(2);
+    const chain = [...w.repo.offers.values()].map((o) => `${o.sequence}:${o.response ?? "open"}`);
+    expect(chain.sort()).toEqual(["1:TIMEOUT", "2:open"]);
+  });
+
+  it("отказ — сразу следующему; отказавшемуся второй раз не предлагают", async () => {
+    const w = setup();
+    const first = w.addCourier("первый", north(200));
+    const second = w.addCourier("второй", north(800));
+    await w.request();
+
+    await w.couriers.reject({ userId: first.userId }, w.openOffer(first.id)!.id);
+
+    expect(w.openOffer(second.id)).toBeDefined();
+    await w.couriers.reject({ userId: second.userId }, w.openOffer(second.id)!.id);
+    expect(w.repo.eventsOfType(DELIVERY_EVENT_TYPES.courierNotFound)).toHaveLength(1);
+  });
+
+  it("принять просроченное нельзя — заказ уже у следующего курьера", async () => {
+    const w = setup();
+    const first = w.addCourier("первый", north(200));
+    await w.request();
+    const offerId = w.openOffer(first.id)!.id;
+
+    await expect(
+      w.couriers.accept({ userId: first.userId }, offerId, new Date(Date.now() + 95_000)),
+    ).rejects.toThrow(ConflictError);
+  });
+
+  it("чужое предложение не принять", async () => {
+    const w = setup();
+    const first = w.addCourier("первый", north(200));
+    const stranger = w.addCourier("чужой", north(5000));
+    await w.request();
+
+    await expect(
+      w.couriers.accept({ userId: stranger.userId }, w.openOffer(first.id)!.id),
+    ).rejects.toThrow("другому курьеру");
+  });
+});
+
+describe("доставка (DLV-5) и события для order", () => {
+  it("принял → забрал → вручил; курьер снова свободен", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200));
+    const { deliveryId } = await w.request();
+    const me = { userId: courier.userId };
+
+    await w.couriers.accept(me, w.openOffer(courier.id)!.id);
+    await expect(w.couriers.delivered(me, deliveryId)).rejects.toThrow(DomainRuleError);
+    await w.couriers.pickedUp(me, deliveryId);
+    await w.couriers.delivered(me, deliveryId);
+
+    expect(w.repo.couriers.get(courier.id)).toMatchObject({
+      status: "available",
+      currentDeliveryId: null,
+    });
+    const types = w.repo.outbox.map((entry) => entry.event.eventType);
+    expect(types).toEqual([
+      DELIVERY_EVENT_TYPES.courierAssigned,
+      DELIVERY_EVENT_TYPES.courierAccepted,
+      DELIVERY_EVENT_TYPES.orderPickedUp,
+      DELIVERY_EVENT_TYPES.deliveryCompleted,
+    ]);
+    expect(w.repo.outbox.every((entry) => entry.orderId === w.orderId)).toBe(true);
+    expect(
+      (w.repo.eventsOfType(DELIVERY_EVENT_TYPES.orderPickedUp)[0].payload as { etaMinutes: number })
+        .etaMinutes,
+    ).toBeGreaterThan(0);
+  });
+
+  it("отмена заказа освобождает курьера и закрывает открытое предложение", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200));
+    await w.request();
+
+    await expect(
+      w.dispatch.releaseCourier({ orderId: w.orderId, idempotencyKey: "r-1" }),
+    ).resolves.toEqual({ released: true });
+    expect(w.repo.couriers.get(courier.id)?.status).toBe("available");
+    expect([...w.repo.offers.values()][0].response).toBe("CANCELLED");
+    await expect(
+      w.dispatch.releaseCourier({ orderId: w.orderId, idempotencyKey: "r-2" }),
+    ).resolves.toEqual({ released: false });
+  });
+});
+
+describe("смена и геопозиция (DLV-1, DLV-2, TRK-2)", () => {
+  it("позиция принимается только на смене; на доставке рассылается клиенту заказа", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200), { status: "offline" });
+    const me = { userId: courier.userId };
+
+    await expect(w.couriers.updateLocation(me, north(150))).rejects.toThrow(ForbiddenError);
+    await w.couriers.setShift(me, true);
+    await w.couriers.updateLocation(me, north(150));
+    expect(w.positions.history).toHaveLength(1);
+    expect(w.positions.published).toHaveLength(0);
+
+    w.repo.freshUntil.set(courier.id, new Date());
+    const { deliveryId } = await w.request();
+    await w.couriers.accept(me, w.openOffer(courier.id)!.id);
+    await w.couriers.updateLocation(me, north(100));
+
+    expect(w.positions.published).toEqual([expect.objectContaining({ orderId: w.orderId })]);
+    expect(deliveryId).toBeDefined();
+  });
+
+  it("с заказом на руках со смены не уйти", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200));
+    await w.request();
+    await w.couriers.accept({ userId: courier.userId }, w.openOffer(courier.id)!.id);
+
+    await expect(w.couriers.setShift({ userId: courier.userId }, false)).rejects.toThrow(
+      DomainRuleError,
+    );
+  });
+
+  it("учётная запись без курьера — отказ", async () => {
+    const w = setup();
+    await expect(w.couriers.dashboard({ userId: randomUUID() })).rejects.toThrow(ForbiddenError);
+  });
+});
+
+describe("позиция курьера для клиента (SEC-7)", () => {
+  it("видит клиент заказа и оператор; чужой клиент — «не найдено»", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200));
+    await w.request();
+    await w.couriers.accept({ userId: courier.userId }, w.openOffer(courier.id)!.id);
+    await w.couriers.updateLocation({ userId: courier.userId }, north(120));
+
+    const own = await w.tracking.courierPosition(w.orderId, {
+      userId: w.customerId,
+      roles: ["client"],
+    });
+    expect(own.position).toMatchObject({ latitude: north(120).latitude });
+
+    await expect(
+      w.tracking.courierPosition(w.orderId, { userId: randomUUID(), roles: ["client"] }),
+    ).rejects.toThrow(NotFoundError);
+    await expect(
+      w.tracking.courierPosition(w.orderId, { userId: randomUUID(), roles: ["operator"] }),
+    ).resolves.toMatchObject({ status: "ASSIGNED" });
+  });
+});

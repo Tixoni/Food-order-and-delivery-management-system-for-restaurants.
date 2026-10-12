@@ -97,6 +97,44 @@ async function bind(token, email, restaurantId) {
   console.log(`  ${email} → ресторан ${restaurantId}`);
 }
 
+/**
+ * Курьер из файла области привязывается к курьеру в базе доставки: курьер
+ * действует от своей учётной записи, и без привязки на смену не выйти.
+ */
+async function bindCourier(token) {
+  const search = await fetch(
+    `${KEYCLOAK}/admin/realms/${REALM}/users?email=${encodeURIComponent(COURIER)}&exact=true`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const [user] = await search.json();
+  if (!user) {
+    console.log(`  ${COURIER}: учётная запись не найдена — пропускаю`);
+    return;
+  }
+
+  const client = new pg.Client({ ...db, database: process.env.DELIVERY_DB ?? "delivery_db" });
+  await client.connect();
+  try {
+    // Учётная запись может быть уже привязана к другому курьеру — отвязываем.
+    await client.query(`UPDATE couriers SET user_id = NULL WHERE user_id = $1`, [user.id]);
+    const { rows } = await client.query(
+      `UPDATE couriers SET user_id = $1, status = 'offline', current_delivery_id = NULL
+        WHERE id = (SELECT id FROM couriers WHERE is_active ORDER BY full_name LIMIT 1)
+        RETURNING full_name`,
+      [user.id],
+    );
+    if (rows.length === 0) {
+      console.log("  в базе доставки нет курьеров: сначала npm run db:seed");
+      return;
+    }
+    console.log(`  ${COURIER} → курьер «${rows[0].full_name}»`);
+  } finally {
+    await client.end();
+  }
+}
+
+const COURIER = "courier@food.local";
+
 const restaurant = await findRestaurant();
 console.log(`Привязка сотрудников к ресторану «${restaurant.name}»`);
 
@@ -104,6 +142,7 @@ const token = await adminToken();
 for (const email of STAFF) {
   await bind(token, email, restaurant.id);
 }
+await bindCourier(token);
 
 console.log("\nГотово. Токен сотрудника теперь содержит поле restaurantId,");
 console.log("и сервис проверяет по нему владение рестораном (SEC-2).");

@@ -110,9 +110,9 @@ const httpClient = (
       inject: [ORDER_REPOSITORY, ORDER_WORKFLOW],
     },
 
-    // Участники саги. Платежи — сервис `payment` (PAYMENT_MODE=http) или
-    // заглушка внутри процесса для разработки без него; доставка — заглушка
-    // до итерации 3. Переключение — PAYMENT_MODE / DELIVERY_MODE.
+    // Участники саги — сервисы `payment` и `delivery` по внутреннему HTTP
+    // со служебными токенами или заглушки внутри процесса для разработки
+    // без них. Переключение — PAYMENT_MODE / DELIVERY_MODE.
     {
       provide: CATALOG_PORT,
       useValue: new CatalogHttpClient(httpClient("catalog", config.services.catalogUrl, config)),
@@ -134,7 +134,11 @@ const httpClient = (
       provide: DELIVERY_PORT,
       useValue:
         config.services.delivery.mode === "http"
-          ? new DeliveryHttpClient(httpClient("delivery", config.services.delivery.url, config))
+          ? new DeliveryHttpClient(
+              httpClient("delivery", config.services.delivery.url, config, {
+                [INTERNAL_TOKEN_HEADER]: config.services.delivery.internalToken,
+              }),
+            )
           : new DeliveryStub(),
     },
 

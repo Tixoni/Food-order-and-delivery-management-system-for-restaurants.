@@ -20,6 +20,7 @@ COPY apps/delivery ./apps/delivery
 
 RUN npm run build -w @food-delivery/shared \
     && npm run build -w @food-delivery/service-kit \
+    && npm run build -w @food-delivery/contracts \
     && npm run build -w @food-delivery/delivery \
     && npm prune --omit=dev
 
@@ -34,6 +35,8 @@ COPY --from=builder --chown=node:node /app/packages/shared/package.json ./packag
 COPY --from=builder --chown=node:node /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder --chown=node:node /app/packages/service-kit/package.json ./packages/service-kit/
 COPY --from=builder --chown=node:node /app/packages/service-kit/dist ./packages/service-kit/dist
+COPY --from=builder --chown=node:node /app/packages/contracts/package.json ./packages/contracts/
+COPY --from=builder --chown=node:node /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder --chown=node:node /app/apps/delivery/package.json ./apps/delivery/
 COPY --from=builder --chown=node:node /app/apps/delivery/dist ./apps/delivery/dist
 
