@@ -16,7 +16,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/graphql": { target: "http://localhost:3000", changeOrigin: false },
+      // ws: true — подписки GraphQL идут по WebSocket тем же адресом.
+      "/graphql": { target: "http://localhost:3000", changeOrigin: false, ws: true },
       "/auth": { target: "http://localhost:3000", changeOrigin: false },
     },
   },

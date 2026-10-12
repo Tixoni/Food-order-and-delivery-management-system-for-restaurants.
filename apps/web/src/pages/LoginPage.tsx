@@ -5,7 +5,9 @@ import { call, useSession, type SessionUser } from "../auth/session";
 /** Куда вести после входа: сотрудника — сразу в его раздел, клиента — на витрину. */
 function homeOf(user: SessionUser): string {
   if (user.roles.includes("admin")) return "/admin/restaurants";
-  if (user.roles.some((role) => role === "manager" || role === "kitchen")) return "/manage/menu";
+  if (user.roles.includes("courier")) return "/courier";
+  if (user.roles.includes("kitchen")) return "/kitchen";
+  if (user.roles.includes("manager")) return "/manage/menu";
   return "/";
 }
 

@@ -977,3 +977,137 @@ textarea {
   justify-content: space-between;
   gap: 1rem;
 }
+
+/* ─────────────── Кухня ─────────────── */
+
+.kitchen {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 60rem) {
+  .kitchen {
+    grid-template-columns: repeat(3, 1fr);
+    align-items: start;
+  }
+}
+
+.kitchen__column {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.kitchen-card {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.kitchen-card--new {
+  border-left: 4px solid var(--accent);
+}
+
+.kitchen-card--urgent {
+  background: var(--accent-soft);
+}
+
+.kitchen-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.kitchen-card__lines {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.kitchen-card__comment {
+  margin: 0;
+  font-style: italic;
+}
+
+.kitchen-card__timer {
+  margin: 0;
+}
+
+.kitchen-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.kitchen-card__actions select {
+  padding: 0.5rem;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+/* ─────────────── Курьер ─────────────── */
+
+.courier {
+  display: grid;
+  gap: 1rem;
+}
+
+.courier__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.courier__head .page__title,
+.courier__head .page__hint {
+  margin: 0;
+}
+
+.courier__gps {
+  margin: 0;
+}
+
+.courier-offer {
+  border: 2px solid var(--accent);
+}
+
+.courier-offer__timer {
+  font-size: 1.125rem;
+}
+
+.courier-delivery {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.courier-delivery__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+}
+
+.courier-delivery__facts dt {
+  color: var(--fg-muted);
+}
+
+.courier-delivery__facts dd {
+  margin: 0;
+}
+
+.courier-delivery__action {
+  width: 100%;
+  padding: 0.875rem;
+  font-size: 1.0625rem;
+}
+
+.courier__simulation {
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.map--delivery {
+  height: 16rem;
+  border-radius: var(--radius);
+}

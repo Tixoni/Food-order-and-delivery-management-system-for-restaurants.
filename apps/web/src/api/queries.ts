@@ -276,6 +276,7 @@ const ORDER_FIELDS = gql`
     cancelReason
     cancelComment
     canCancel
+    respondBy
   }
 `;
 
@@ -321,6 +322,215 @@ export const CANCEL_ORDER = gql`
   mutation CancelOrder($id: ID!, $reason: String) {
     cancelOrder(id: $id, reason: $reason) {
       ...OrderFields
+    }
+  }
+`;
+
+/* ─────────────── Реальное время ─────────────── */
+
+export const ORDER_UPDATED = gql`
+  subscription OrderUpdated($orderId: ID!) {
+    orderUpdated(orderId: $orderId) {
+      orderId
+      status
+      previousStatus
+      at
+    }
+  }
+`;
+
+export const COURIER_POSITION = gql`
+  query CourierPosition($orderId: ID!) {
+    courierPosition(orderId: $orderId) {
+      orderId
+      status
+      position {
+        latitude
+        longitude
+        at
+      }
+      pickup {
+        latitude
+        longitude
+      }
+      dropoff {
+        latitude
+        longitude
+      }
+    }
+  }
+`;
+
+export const COURIER_POSITION_UPDATED = gql`
+  subscription CourierPositionUpdated($orderId: ID!) {
+    courierPositionUpdated(orderId: $orderId) {
+      orderId
+      latitude
+      longitude
+      at
+    }
+  }
+`;
+
+/* ─────────────── Кухня ─────────────── */
+
+export const KITCHEN_QUEUE = gql`
+  ${ORDER_FIELDS}
+  query KitchenQueue {
+    kitchenQueue {
+      ...OrderFields
+    }
+  }
+`;
+
+export const KITCHEN_QUEUE_CHANGED = gql`
+  subscription KitchenQueueChanged {
+    kitchenQueueChanged {
+      orderId
+      status
+      at
+    }
+  }
+`;
+
+export const CONFIRM_ORDER = gql`
+  mutation ConfirmOrder($id: ID!, $cookingMinutes: Int!) {
+    confirmOrder(id: $id, cookingMinutes: $cookingMinutes) {
+      id
+      status
+    }
+  }
+`;
+
+export const REJECT_ORDER = gql`
+  mutation RejectOrder($id: ID!, $reason: String!) {
+    rejectOrder(id: $id, reason: $reason) {
+      id
+      status
+    }
+  }
+`;
+
+export const MARK_ORDER_READY = gql`
+  mutation MarkOrderReady($id: ID!) {
+    markOrderReady(id: $id) {
+      id
+      status
+    }
+  }
+`;
+
+/* ─────────────── Курьер ─────────────── */
+
+const DELIVERY_TASK_FIELDS = gql`
+  fragment DeliveryTaskFields on DeliveryTask {
+    id
+    orderId
+    orderNumber
+    status
+    dropoffAddress
+    contactPhone
+    readyAt
+    pickedUpAt
+    restaurant {
+      id
+      name
+    }
+    pickup {
+      latitude
+      longitude
+    }
+    dropoff {
+      latitude
+      longitude
+    }
+  }
+`;
+
+export const COURIER_DASHBOARD = gql`
+  ${DELIVERY_TASK_FIELDS}
+  query CourierDashboard {
+    courierDashboard {
+      courier {
+        id
+        fullName
+        vehicleType
+        status
+      }
+      position {
+        latitude
+        longitude
+        at
+      }
+      offer {
+        id
+        sequence
+        expiresAt
+        delivery {
+          ...DeliveryTaskFields
+        }
+      }
+      delivery {
+        ...DeliveryTaskFields
+      }
+    }
+  }
+`;
+
+export const COURIER_UPDATED = gql`
+  subscription CourierUpdated {
+    courierUpdated {
+      kind
+      orderId
+      at
+    }
+  }
+`;
+
+export const SET_COURIER_SHIFT = gql`
+  mutation SetCourierShift($onShift: Boolean!) {
+    setCourierShift(onShift: $onShift) {
+      id
+      status
+    }
+  }
+`;
+
+export const UPDATE_COURIER_LOCATION = gql`
+  mutation UpdateCourierLocation($latitude: Float!, $longitude: Float!, $accuracy: Float) {
+    updateCourierLocation(latitude: $latitude, longitude: $longitude, accuracy: $accuracy)
+  }
+`;
+
+export const ACCEPT_OFFER = gql`
+  mutation AcceptOffer($id: ID!) {
+    acceptOffer(id: $id) {
+      id
+      status
+    }
+  }
+`;
+
+export const REJECT_OFFER = gql`
+  mutation RejectOffer($id: ID!) {
+    rejectOffer(id: $id)
+  }
+`;
+
+export const MARK_PICKED_UP = gql`
+  mutation MarkPickedUp($deliveryId: ID!) {
+    markPickedUp(deliveryId: $deliveryId) {
+      id
+      status
+    }
+  }
+`;
+
+export const MARK_DELIVERED = gql`
+  mutation MarkDelivered($deliveryId: ID!) {
+    markDelivered(deliveryId: $deliveryId) {
+      id
+      status
     }
   }
 `;
@@ -443,6 +653,7 @@ export interface Order {
   cancelReason: string | null;
   cancelComment: string | null;
   canCancel: boolean;
+  respondBy: string | null;
 }
 
 export interface OrderTransition {
@@ -451,4 +662,42 @@ export interface OrderTransition {
   actorType: string;
   reason: string | null;
   at: string;
+}
+
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+}
+
+export interface CourierLocation extends GeoPoint {
+  at: string;
+}
+
+export interface DeliveryTask {
+  id: string;
+  orderId: string;
+  orderNumber: number | null;
+  status: string;
+  dropoffAddress: string | null;
+  contactPhone: string | null;
+  readyAt: string | null;
+  pickedUpAt: string | null;
+  restaurant: { id: string; name: string } | null;
+  pickup: GeoPoint;
+  dropoff: GeoPoint;
+}
+
+export interface CourierDashboardData {
+  courier: { id: string; fullName: string; vehicleType: string; status: string };
+  position: CourierLocation | null;
+  offer: { id: string; sequence: number; expiresAt: string; delivery: DeliveryTask } | null;
+  delivery: DeliveryTask | null;
+}
+
+export interface OrderCourierPosition {
+  orderId: string;
+  status: string;
+  position: CourierLocation | null;
+  pickup: GeoPoint;
+  dropoff: GeoPoint;
 }

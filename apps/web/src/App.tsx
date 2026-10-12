@@ -20,6 +20,12 @@ const MenuManagerPage = lazy(() =>
 const ZoneEditorPage = lazy(() =>
   import("./pages/manager/ZoneEditorPage").then((m) => ({ default: m.ZoneEditorPage })),
 );
+const KitchenPage = lazy(() =>
+  import("./pages/KitchenPage").then((m) => ({ default: m.KitchenPage })),
+);
+const CourierPage = lazy(() =>
+  import("./pages/courier/CourierPage").then((m) => ({ default: m.CourierPage })),
+);
 const AdminRestaurantsPage = lazy(() =>
   import("./pages/manager/AdminRestaurantsPage").then((m) => ({
     default: m.AdminRestaurantsPage,
@@ -100,6 +106,8 @@ function Header() {
         <NavLink to="/">Витрина</NavLink>
         {hasRole("client") && <NavLink to="/orders">Мои заказы</NavLink>}
 
+        {hasRole("manager", "kitchen") && <NavLink to="/kitchen">Кухня</NavLink>}
+        {hasRole("courier") && <NavLink to="/courier">Доставка</NavLink>}
         {hasRole("manager", "kitchen", "admin") && <NavLink to="/manage/menu">Меню</NavLink>}
         {hasRole("manager", "admin") && <NavLink to="/manage/zone">Зона доставки</NavLink>}
         {hasRole("admin") && <NavLink to="/admin/restaurants">Рестораны</NavLink>}
@@ -156,6 +164,22 @@ export function App() {
           }
         />
 
+        <Route
+          path="/kitchen"
+          element={
+            <RequireRole roles={["kitchen", "manager", "admin"]}>
+              <KitchenPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/courier"
+          element={
+            <RequireRole roles={["courier"]}>
+              <CourierPage />
+            </RequireRole>
+          }
+        />
         <Route
           path="/manage/menu"
           element={

@@ -1,8 +1,18 @@
-import { useEffect } from "react";
-import { useMutation, useQuery } from "@apollo/client";
+import { Suspense, lazy, useEffect, useState } from "react";
+import { useMutation, useQuery, useSubscription } from "@apollo/client";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { errorText } from "../api/client";
-import { CANCEL_ORDER, ORDER, type Order, type OrderTransition } from "../api/queries";
+import {
+  CANCEL_ORDER,
+  COURIER_POSITION,
+  COURIER_POSITION_UPDATED,
+  ORDER,
+  ORDER_UPDATED,
+  type GeoPoint,
+  type Order,
+  type OrderCourierPosition,
+  type OrderTransition,
+} from "../api/queries";
 import { formatMinutes, formatMoney } from "../components/money";
 import {
   CLIENT_STEPS,
@@ -13,8 +23,26 @@ import {
   stepIndex,
 } from "../components/orderStatus";
 
-/** Как часто экран переспрашивает статус, пока заказ в работе. */
-const POLL_MS = 3_000;
+const DeliveryMap = lazy(() => import("../components/DeliveryMap"));
+
+/**
+ * Страховочный опрос на случай потери соединения WebSocket. Основной путь —
+ * подписка: статус приходит в момент перехода, а не через несколько секунд.
+ */
+const FALLBACK_POLL_MS = 30_000;
+
+/** Статусы, при которых на карте есть курьер. */
+const COURIER_STATUSES = ["COOKING", "READY", "ASSIGNING_COURIER", "IN_TRANSIT"];
+
+/** Уведомление о смене статуса (NTF-1, NTF-2): то, что клиенту важно узнать сразу. */
+const NOTICE: Record<string, string> = {
+  AWAITING_RESTAURANT: "Оплата прошла — заказ у ресторана",
+  COOKING: "Ресторан принял заказ и начал готовить",
+  ASSIGNING_COURIER: "Заказ готов — ждёт курьера",
+  IN_TRANSIT: "Курьер забрал заказ и едет к вам",
+  DELIVERED: "Заказ доставлен. Приятного аппетита!",
+  CANCELLED: "Заказ отменён",
+};
 
 /** Ожидаемое время доставки: готовка от подтверждения плюс дорога. */
 function expectedBy(order: Order): string | null {
@@ -26,10 +54,11 @@ function expectedBy(order: Order): string | null {
 /**
  * Отслеживание заказа (TRK-1) и отмена до начала готовки (ORD-5).
  *
- * Пока заказ в работе, экран переспрашивает статус раз в несколько секунд.
- * Это временное решение итерации 2: в итерации 3 статусы будут приходить
- * подпиской по WebSocket (NTF-1), и опрос уйдёт. Опрос останавливается,
- * как только заказ доставлен или отменён, — дальше статус не меняется.
+ * Статус приходит подпиской по WebSocket (NTF-1): шлюз пересылает
+ * событие сервиса заказов, экран перечитывает заказ и показывает
+ * уведомление. Пока курьер едет, на карте — его позиция, тоже по подписке
+ * (TRK-2, PERF-3). Опрос раз в 30 секунд остаётся страховкой на случай
+ * потери соединения и останавливается, когда заказ доставлен или отменён.
  *
  * Кнопка «Отменить» показывается по признаку из сервиса заказов, а не по
  * списку статусов здесь: правило ORD-5 живёт в одном месте.
@@ -41,7 +70,7 @@ export function OrderPage() {
 
   const query = useQuery<{ order: Order; orderTransitions: OrderTransition[] }>(ORDER, {
     variables: { id: orderId },
-    pollInterval: POLL_MS,
+    pollInterval: FALLBACK_POLL_MS,
     // Статус берётся с сервера при каждом опросе, а не из кэша.
     fetchPolicy: "network-only",
     nextFetchPolicy: "network-only",
@@ -50,10 +79,27 @@ export function OrderPage() {
 
   const order = query.data?.order;
   const finished = order ? isFinished(order.status) : false;
-  const { stopPolling } = query;
+  const { stopPolling, refetch } = query;
   useEffect(() => {
     if (finished) stopPolling();
   }, [finished, stopPolling]);
+
+  // Статус — подпиской: событие пришло — перечитать заказ и сказать клиенту.
+  const update = useSubscription<{ orderUpdated: { status: string; at: string } }>(ORDER_UPDATED, {
+    variables: { orderId },
+    skip: finished,
+  });
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    const status = update.data?.orderUpdated.status;
+    if (!status) return;
+    void refetch();
+    if (NOTICE[status]) {
+      setNotice(NOTICE[status]);
+      const timer = window.setTimeout(() => setNotice(null), 6000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [update.data, refetch]);
 
   if (query.loading && !query.data) {
     return (
@@ -137,7 +183,13 @@ export function OrderPage() {
             к {eta}
           </p>
         )}
-        {!finished && <p className="item__note">Статус обновляется автоматически.</p>}
+        {!finished && (
+          <p className="item__note">
+            {update.error
+              ? "Нет связи для обновлений — статус обновляется раз в 30 секунд."
+              : "Статус обновляется сам, как только меняется."}
+          </p>
+        )}
 
         {order.canCancel && (
           <button
@@ -155,6 +207,17 @@ export function OrderPage() {
           </p>
         )}
       </section>
+
+      {order && COURIER_STATUSES.includes(order.status) && (
+        // Новый статус — перечитать позицию: доставка могла появиться только что.
+        <CourierOnMap key={order.status} orderId={order.id} />
+      )}
+
+      {notice && (
+        <p className="toast" role="status">
+          {notice}
+        </p>
+      )}
 
       <section className="card">
         <h2 className="section__title">Состав</h2>
@@ -212,5 +275,58 @@ export function OrderPage() {
         </section>
       )}
     </main>
+  );
+}
+
+/**
+ * Где курьер (TRK-2). Начальная позиция — запросом, дальше — подпиской.
+ * Позиция старше двух минут считается устаревшей: курьер мог потерять
+ * связь, и точка часовой давности ввела бы клиента в заблуждение.
+ */
+function CourierOnMap({ orderId }: { orderId: string }) {
+  const initial = useQuery<{ courierPosition: OrderCourierPosition }>(COURIER_POSITION, {
+    variables: { orderId },
+    fetchPolicy: "network-only",
+    // Курьер принимает заказ без смены статуса заказа — экран узнаёт
+    // о назначении по живой позиции или при этом перечитывании.
+    pollInterval: 15_000,
+  });
+  const live = useSubscription<{ courierPositionUpdated: GeoPoint & { at: string } }>(
+    COURIER_POSITION_UPDATED,
+    { variables: { orderId } },
+  );
+
+  const info = initial.data?.courierPosition;
+  if (!info) return null;
+  const position = live.data?.courierPositionUpdated ?? info.position;
+  const stale = position && Date.now() - new Date(position.at).getTime() > 120_000;
+  // Позиции рассылаются только по принятой доставке: пришла живая
+  // позиция — курьер назначен, даже если запрос ещё не перечитан.
+  const assigned = info.status === "ASSIGNED" || info.status === "PICKED_UP" || !!live.data;
+
+  return (
+    <section className="card">
+      <h2 className="section__title">
+        {info.status === "PICKED_UP"
+          ? "Курьер едет к вам"
+          : assigned
+            ? "Курьер едет в ресторан"
+            : "Ищем курьера"}
+      </h2>
+      <Suspense fallback={<p className="item__note">Загружаем карту…</p>}>
+        <DeliveryMap
+          pickup={info.pickup}
+          dropoff={info.dropoff}
+          courier={assigned && position && !stale ? position : null}
+        />
+      </Suspense>
+      {assigned && (
+        <p className="item__note">
+          {!position || stale
+            ? "Позиция курьера устарела — он мог потерять связь, доставка продолжается."
+            : `Позиция обновлена в ${new Date(position.at).toLocaleTimeString("ru-RU")}`}
+        </p>
+      )}
+    </section>
   );
 }
