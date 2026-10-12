@@ -210,6 +210,27 @@ run("доставка на PostgreSQL + PostGIS", () => {
     ]);
   });
 
+  it("промолчавший курьер получает заказ снова, когда order начинает новый раунд", async () => {
+    const spot = north(35_000);
+    const only = await addCourier(north(100, spot));
+    const orderId = randomUUID();
+    const { deliveryId } = await request(orderId, spot);
+
+    await dispatch.expireOffers(new Date(Date.now() + 91_000));
+    // В этом раунде предлагать больше некому
+    expect(await openOfferOf(only.id)).toBeUndefined();
+    const [missed] = await db.query(`SELECT not_found_at FROM deliveries WHERE id = $1`, [
+      deliveryId,
+    ]);
+    expect(missed.not_found_at).not.toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await request(orderId, spot, `${orderId}:courier:2`);
+
+    expect(await openOfferOf(only.id)).toMatchObject({ sequence: 2 });
+    await db.query(`UPDATE couriers SET status = 'offline' WHERE id = $1`, [only.id]);
+  });
+
   it("курьер проходит путь до вручения; события в outbox с ключом заказа", async () => {
     const spot = north(40_000);
     const courier = await addCourier(north(100, spot));

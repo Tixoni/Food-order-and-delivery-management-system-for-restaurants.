@@ -58,7 +58,7 @@ export class DispatchUseCase {
             return { delivery: existing, search: false };
           }
           // Новый ключ — оркестратор повторяет запрос после «не найден».
-          existing.requestedAgain(request.idempotencyKey);
+          existing.requestedAgain(request.idempotencyKey, now);
           await tx.saveDelivery(existing);
           return { delivery: existing, search: existing.status === "PENDING" };
         }
@@ -68,6 +68,9 @@ export class DispatchUseCase {
           orderId: request.orderId,
           restaurantId: request.restaurantId,
           customerId: request.customerId ?? null,
+          orderNumber: request.orderNumber ?? null,
+          dropoffAddress: request.dropoffAddress?.slice(0, 500) ?? null,
+          contactPhone: request.contactPhone?.slice(0, 32) ?? null,
           pickup: geoPoint(request.pickup.latitude, request.pickup.longitude),
           dropoff: geoPoint(request.dropoff.latitude, request.dropoff.longitude),
           readyAt: request.readyAt ? new Date(request.readyAt) : null,

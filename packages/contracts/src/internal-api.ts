@@ -121,6 +121,14 @@ export interface RequestCourierRequest {
   readyAt: string;
   /** Клиент заказа: только ему доставка показывает позицию курьера (SEC-7). */
   customerId?: string;
+  /**
+   * Что нужно курьеру, чтобы довезти заказ: номер для ресторана, адрес
+   * и телефон клиента. Состав и цены доставке не передаются — для неё
+   * заказ — это адрес и контакт.
+   */
+  orderNumber?: number;
+  dropoffAddress?: string;
+  contactPhone?: string | null;
 }
 
 export interface RequestCourierResponse {

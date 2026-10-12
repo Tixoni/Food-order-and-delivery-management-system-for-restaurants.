@@ -22,8 +22,11 @@ export interface DeliveryState {
   orderId: string;
   restaurantId: string | null;
   customerId: string | null;
+  orderNumber: number | null;
   pickup: GeoPoint;
   dropoff: GeoPoint;
+  dropoffAddress: string | null;
+  contactPhone: string | null;
   status: DeliveryStatus;
   courierId: string | null;
   readyAt: Date | null;
@@ -35,6 +38,12 @@ export interface DeliveryState {
   deliveredAt: Date | null;
   cancelledAt: Date | null;
   notFoundAt: Date | null;
+  /**
+   * Начало текущего раунда поиска. Отказавшиеся и промолчавшие в этом
+   * раунде курьеры заказ повторно не получают; новый запрос от order
+   * начинает новый раунд — предлагать снова можно всем.
+   */
+  searchStartedAt: Date;
   version: number;
 }
 
@@ -50,8 +59,11 @@ export class Delivery {
     orderId: string;
     restaurantId: string | null;
     customerId: string | null;
+    orderNumber?: number | null;
     pickup: GeoPoint;
     dropoff: GeoPoint;
+    dropoffAddress?: string | null;
+    contactPhone?: string | null;
     readyAt: Date | null;
     requestKey: string;
     correlationId: string | null;
@@ -62,8 +74,11 @@ export class Delivery {
       orderId: input.orderId,
       restaurantId: input.restaurantId,
       customerId: input.customerId,
+      orderNumber: input.orderNumber ?? null,
       pickup: input.pickup,
       dropoff: input.dropoff,
+      dropoffAddress: input.dropoffAddress ?? null,
+      contactPhone: input.contactPhone ?? null,
       status: "PENDING",
       courierId: null,
       readyAt: input.readyAt,
@@ -75,6 +90,7 @@ export class Delivery {
       deliveredAt: null,
       cancelledAt: null,
       notFoundAt: null,
+      searchStartedAt: input.now,
       version: 1,
     });
   }
@@ -95,10 +111,11 @@ export class Delivery {
     return this.state.status !== "DELIVERED" && this.state.status !== "CANCELLED";
   }
 
-  /** Повторный запрос курьера с новым ключом — после «не найден», искать заново. */
-  requestedAgain(requestKey: string): void {
+  /** Повторный запрос курьера с новым ключом — после «не найден», новый раунд поиска. */
+  requestedAgain(requestKey: string, at: Date): void {
     this.state.requestKey = requestKey;
     this.state.notFoundAt = null;
+    this.state.searchStartedAt = at;
   }
 
   notFound(at: Date): void {

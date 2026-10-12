@@ -62,6 +62,9 @@ function setup() {
       pickup: RESTAURANT,
       dropoff: CLIENT,
       readyAt: new Date().toISOString(),
+      orderNumber: 1042,
+      dropoffAddress: "Тверская, 7, кв. 12",
+      contactPhone: "+7 900 123-45-67",
     });
   const openOffer = (courierId: string) =>
     [...repo.offers.values()].find((o) => o.courierId === courierId && !o.response);
@@ -107,6 +110,21 @@ describe("подбор курьера (DLV-3)", () => {
     expect(second.deliveryId).toBe(first.deliveryId);
     expect(w.repo.deliveries.size).toBe(1);
     expect(w.repo.offers.size).toBe(1);
+  });
+
+  it("пропустивший предложение курьер получит заказ снова в новом раунде поиска", async () => {
+    const w = setup();
+    const only = w.addCourier("единственный", north(200));
+    await w.request();
+    await w.dispatch.expireOffers(new Date(Date.now() + 91_000));
+    // В этом раунде предлагать больше некому
+    expect(w.repo.eventsOfType(DELIVERY_EVENT_TYPES.courierNotFound)).toHaveLength(1);
+    expect(w.openOffer(only.id)).toBeUndefined();
+
+    // order повторяет запрос — новый раунд: тот же курьер снова в кандидатах
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await w.request(`${w.orderId}:courier:2`);
+    expect(w.openOffer(only.id)?.sequence).toBe(2);
   });
 
   it("кандидатов нет — одно событие CourierNotFound; новый запрос от order ищет заново", async () => {
@@ -255,6 +273,27 @@ describe("смена и геопозиция (DLV-1, DLV-2, TRK-2)", () => {
   it("учётная запись без курьера — отказ", async () => {
     const w = setup();
     await expect(w.couriers.dashboard({ userId: randomUUID() })).rejects.toThrow(ForbiddenError);
+  });
+});
+
+describe("экран курьера", () => {
+  it("адрес и номер — сразу, телефон клиента — только после принятия (SEC-4)", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200));
+    await w.request();
+    const me = { userId: courier.userId };
+
+    const offered = await w.couriers.dashboard(me);
+    expect(offered.offer?.delivery).toMatchObject({
+      orderNumber: 1042,
+      dropoffAddress: "Тверская, 7, кв. 12",
+      contactPhone: null,
+    });
+
+    await w.couriers.accept(me, offered.offer!.id);
+    const working = await w.couriers.dashboard(me);
+    expect(working.offer).toBeNull();
+    expect(working.delivery?.contactPhone).toBe("+7 900 123-45-67");
   });
 });
 

@@ -136,7 +136,10 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
       nearestCandidate: async (delivery, radiusMeters, freshSeconds): Promise<Candidate | null> => {
         const offered = new Set(
           [...this.offers.values()]
-            .filter((o) => o.deliveryId === delivery.id)
+            .filter(
+              (o) =>
+                o.deliveryId === delivery.id && o.offeredAt >= delivery.snapshot.searchStartedAt,
+            )
             .map((o) => o.courierId),
         );
         const now = Date.now();

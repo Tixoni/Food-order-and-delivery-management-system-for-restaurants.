@@ -50,7 +50,14 @@ export class CourierUseCase {
   async dashboard(requester: CourierRequester) {
     const view = await this.deliveries.dashboard(requester.userId);
     if (!view) throw notLinked();
-    const position = await this.positions.get(view.courier.id);
+    // Свежая позиция — из кэша; нет её — последняя известная из базы:
+    // приложение курьера после перезапуска продолжит с того же места.
+    const state = view.courier.snapshot;
+    const position =
+      (await this.positions.get(view.courier.id)) ??
+      (state.lastLocation && state.lastLocationAt
+        ? { ...state.lastLocation, at: state.lastLocationAt }
+        : null);
     return {
       courier: courierView(view.courier),
       position,
@@ -59,7 +66,8 @@ export class CourierUseCase {
             id: view.offer.offer.id,
             sequence: view.offer.offer.snapshot.sequence,
             expiresAt: view.offer.offer.snapshot.expiresAt,
-            delivery: deliveryView(view.offer.delivery),
+            // До принятия — без телефона клиента (SEC-4).
+            delivery: deliveryView(view.offer.delivery, { withContact: false }),
           }
         : null,
       delivery: view.delivery ? deliveryView(view.delivery) : null,
@@ -247,11 +255,15 @@ export function courierView(courier: Courier) {
   };
 }
 
-export function deliveryView(delivery: Delivery) {
+export function deliveryView(delivery: Delivery, options: { withContact?: boolean } = {}) {
   const state = delivery.snapshot;
   return {
     id: state.id,
     orderId: state.orderId,
+    orderNumber: state.orderNumber,
+    restaurantId: state.restaurantId,
+    dropoffAddress: state.dropoffAddress,
+    contactPhone: options.withContact === false ? null : state.contactPhone,
     status: state.status,
     courierId: state.courierId,
     pickup: state.pickup,

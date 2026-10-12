@@ -29,9 +29,10 @@ const COURIER_COLUMNS = `
   ST_Y(c.last_location::geometry) AS lat, ST_X(c.last_location::geometry) AS lon`;
 
 const DELIVERY_COLUMNS = `
-  d.id, d.order_id, d.restaurant_id, d.customer_id, d.status, d.courier_id, d.ready_at,
+  d.id, d.order_id, d.restaurant_id, d.customer_id, d.order_number, d.dropoff_address,
+  d.contact_phone, d.status, d.courier_id, d.ready_at,
   d.request_key, d.correlation_id, d.created_at, d.accepted_at, d.picked_up_at,
-  d.delivered_at, d.cancelled_at, d.not_found_at, d.version,
+  d.delivered_at, d.cancelled_at, d.not_found_at, d.search_started_at, d.version,
   ST_Y(d.pickup_location::geometry) AS pickup_lat, ST_X(d.pickup_location::geometry) AS pickup_lon,
   ST_Y(d.dropoff_location::geometry) AS dropoff_lat, ST_X(d.dropoff_location::geometry) AS dropoff_lon`;
 
@@ -146,9 +147,10 @@ export class SqlDeliveryTx implements DeliveryTx {
       await this.query(
         `INSERT INTO deliveries
            (id, order_id, restaurant_id, customer_id, pickup_location, dropoff_location,
-            status, ready_at, request_key, correlation_id, created_at)
+            status, ready_at, request_key, correlation_id, created_at,
+            order_number, dropoff_address, contact_phone, search_started_at)
          VALUES ($1, $2, $3, $4, ${POINT("$5", "$6")}, ${POINT("$7", "$8")},
-                 $9, $10, $11, $12, $13)`,
+                 $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
         [
           s.id,
           s.orderId,
@@ -163,6 +165,10 @@ export class SqlDeliveryTx implements DeliveryTx {
           s.requestKey,
           s.correlationId,
           s.createdAt,
+          s.orderNumber,
+          s.dropoffAddress,
+          s.contactPhone,
+          s.searchStartedAt,
         ],
       );
     } catch (error) {
@@ -180,7 +186,8 @@ export class SqlDeliveryTx implements DeliveryTx {
       `UPDATE deliveries
           SET status = $2, courier_id = $3, request_key = $4, not_found_at = $5,
               accepted_at = $6, assigned_at = COALESCE(assigned_at, $6), picked_up_at = $7,
-              delivered_at = $8, cancelled_at = $9, version = version + 1
+              delivered_at = $8, cancelled_at = $9, search_started_at = $10,
+              version = version + 1
         WHERE id = $1`,
       [
         s.id,
@@ -192,6 +199,7 @@ export class SqlDeliveryTx implements DeliveryTx {
         s.pickedUpAt,
         s.deliveredAt,
         s.cancelledAt,
+        s.searchStartedAt,
       ],
     );
   }
@@ -272,7 +280,8 @@ export class SqlDeliveryTx implements DeliveryTx {
             AND ST_DWithin(c.last_location, ${point}, $4)
             AND NOT EXISTS (
                   SELECT 1 FROM delivery_assignments a
-                   WHERE a.delivery_id = $5 AND a.courier_id = c.id)
+                   WHERE a.delivery_id = $5 AND a.courier_id = c.id
+                     AND a.offered_at >= $6)
           ORDER BY c.last_location <-> ${point}
           LIMIT 10)
        SELECT ${COURIER_COLUMNS}, n.distance
@@ -282,7 +291,14 @@ export class SqlDeliveryTx implements DeliveryTx {
         ORDER BY n.distance
         LIMIT 1
         FOR UPDATE OF c SKIP LOCKED`,
-      [pickup.longitude, pickup.latitude, freshSeconds, radiusMeters, delivery.id],
+      [
+        pickup.longitude,
+        pickup.latitude,
+        freshSeconds,
+        radiusMeters,
+        delivery.id,
+        delivery.snapshot.searchStartedAt,
+      ],
     );
     return row ? { courier: toCourier(row), distanceMeters: Number(row.distance) } : null;
   }
@@ -393,8 +409,11 @@ function toDelivery(row: any): Delivery {
     orderId: row.order_id,
     restaurantId: row.restaurant_id,
     customerId: row.customer_id,
+    orderNumber: row.order_number === null ? null : Number(row.order_number),
     pickup: point(row.pickup_lat, row.pickup_lon)!,
     dropoff: point(row.dropoff_lat, row.dropoff_lon)!,
+    dropoffAddress: row.dropoff_address,
+    contactPhone: row.contact_phone,
     status: row.status,
     courierId: row.courier_id,
     readyAt: row.ready_at,
@@ -406,6 +425,7 @@ function toDelivery(row: any): Delivery {
     deliveredAt: row.delivered_at,
     cancelledAt: row.cancelled_at,
     notFoundAt: row.not_found_at,
+    searchStartedAt: row.search_started_at ?? row.created_at,
     version: Number(row.version),
   };
   return Delivery.restore(state);

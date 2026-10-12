@@ -234,6 +234,9 @@ export class SagaRunner {
       dropoff: order.location,
       readyAt: readyAt.toISOString(),
       customerId: order.customerId,
+      orderNumber: order.orderNumber,
+      dropoffAddress: order.snapshot().addressText,
+      contactPhone: order.snapshot().contactPhone,
     };
     const started = new Date();
     try {
