@@ -19,7 +19,12 @@ export interface ClaimedEntry {
  * перезапуск сервиса, а две реплики не выполняют один шаг одновременно.
  */
 export interface SagaQueue {
-  claimDue(limit: number, leaseMs: number): Promise<ClaimedEntry[]>;
+  /**
+   * `now` — часы сервиса. Сроки записей вычисляет сервис, поэтому и
+   * наступление проверяется по его часам, а не по часам базы: при
+   * расхождении часов шаг иначе ждал бы на величину расхождения.
+   */
+  claimDue(limit: number, leaseMs: number, now?: Date): Promise<ClaimedEntry[]>;
   /** Шаг не удался, но повторить имеет смысл: запись остаётся активной до `fireAt`. */
   retryLater(entry: ClaimedEntry, fireAt: Date, error: string, step: SagaStepRecord): Promise<void>;
   /** Запись потеряла смысл (заказ удалён, шаг уже не нужен) — снять без изменений заказа. */

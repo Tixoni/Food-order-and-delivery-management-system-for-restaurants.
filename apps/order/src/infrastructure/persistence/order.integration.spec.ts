@@ -137,6 +137,28 @@ run("хранилище заказов на PostgreSQL", () => {
     expect((await read.get(order.id))?.status).toBe("AWAITING_RESTAURANT");
   });
 
+  it("наступление шага — по часам сервиса: часы базы отстают, а шаг берётся сразу", async () => {
+    const { order } = await placeOrder();
+    // Часы базы на 5 с позади часов сервиса: срок, записанный сервисом
+    // «сейчас», для базы ещё не наступил.
+    await db.query(
+      `UPDATE saga_timers SET fire_at = now() + interval '5 seconds'
+        WHERE order_id = $1 AND fired_at IS NULL AND timer_type = 'AUTHORIZE_PAYMENT'`,
+      [order.id],
+    );
+    // «Сейчас» сервиса — от часов базы, чтобы проверка не зависела от того,
+    // насколько на этой машине на самом деле расходятся часы.
+    const [{ db_now: dbNow }] = await db.query(`SELECT now() AS db_now`);
+    const serviceNow = new Date(new Date(dbNow).getTime() + 6_000);
+
+    const claimed = (await repository.claimDue(50, 30_000, serviceNow)).filter(
+      (entry) => entry.orderId === order.id,
+    );
+
+    expect(claimed.map((entry) => entry.type)).toEqual(["AUTHORIZE_PAYMENT"]);
+    for (const entry of claimed) await runner.run(entry);
+  });
+
   it("путь до готовки: история переходов, шаги саги, активный срок статуса", async () => {
     const { order } = await placeOrder();
     await drain(order.id);

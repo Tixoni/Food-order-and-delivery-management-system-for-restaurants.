@@ -273,19 +273,25 @@ export class TypeOrmOrderRepository implements OrderRepository, SagaQueue {
   /**
    * Взять наступившие записи «в аренду»: срок отодвигается на время аренды,
    * счётчик попыток растёт. `SKIP LOCKED` — две реплики не возьмут одно и то же.
+   *
+   * Время — часы сервиса (`$3`), а не `now()` базы: сроки в `fire_at` пишет
+   * сервис по своим часам. Сравнение с часами базы смешивало двое часов —
+   * найдено замером PERF-4: часы Docker-машины уходили от часов Windows на
+   * секунды, и первый шаг саги ждал 2–4,5 с вместо долей секунды.
    */
-  async claimDue(limit: number, leaseMs: number): Promise<ClaimedEntry[]> {
+  async claimDue(limit: number, leaseMs: number, now = new Date()): Promise<ClaimedEntry[]> {
     const rows = (await this.dataSource.query(
       `UPDATE saga_timers t
-          SET fire_at = now() + ($2::int * interval '1 millisecond'), attempts = t.attempts + 1
+          SET fire_at = $3::timestamptz + ($2::int * interval '1 millisecond'),
+              attempts = t.attempts + 1
          FROM (SELECT id FROM saga_timers
-                WHERE fired_at IS NULL AND fire_at <= now()
+                WHERE fired_at IS NULL AND fire_at <= $3
                 ORDER BY fire_at
                 LIMIT $1
                 FOR UPDATE SKIP LOCKED) due
         WHERE t.id = due.id
         RETURNING t.id, t.order_id, t.saga_id, t.timer_type, t.attempts`,
-      [limit, leaseMs],
+      [limit, leaseMs, now],
     )) as unknown;
     // Для UPDATE ... RETURNING драйвер возвращает пару [строки, число строк].
     const list = (Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0] : rows) as Array<{
