@@ -36,6 +36,15 @@ export class CourierProfile {
   status!: string;
 }
 
+@ObjectType({ description: "Маршрут от ресторана до клиента по дорогам (DLV-6)" })
+export class DeliveryRoute {
+  @Field(() => Int, { description: "Длина пути по дорогам, метры" })
+  distanceMeters!: number;
+
+  @Field(() => [GeoPoint], { description: "Упрощённая линия для карты" })
+  path!: GeoPoint[];
+}
+
 @ObjectType({ description: "Доставка глазами курьера: откуда, куда, кому" })
 export class DeliveryTask {
   @Field(() => ID)
@@ -79,6 +88,12 @@ export class DeliveryTask {
 
   @Field(() => String, { nullable: true })
   pickedUpAt?: string | null;
+
+  @Field(() => DeliveryRoute, {
+    nullable: true,
+    description: "Нет — маршрутизатор недоступен: карта рисует прямую",
+  })
+  route?: DeliveryRoute | null;
 }
 
 @ObjectType({ description: "Предложение заказа курьеру (DLV-4)" })
@@ -130,6 +145,12 @@ export class OrderCourierPosition {
 
   @Field(() => GeoPoint)
   dropoff!: GeoPoint;
+
+  @Field(() => DeliveryRoute, {
+    nullable: true,
+    description: "Нет — маршрутизатор недоступен: карта рисует прямую",
+  })
+  route?: DeliveryRoute | null;
 }
 
 @ObjectType({ description: "Статус заказа изменился (NTF-1)" })

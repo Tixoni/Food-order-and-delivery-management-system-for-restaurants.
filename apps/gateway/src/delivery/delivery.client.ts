@@ -15,6 +15,12 @@ export interface PositionView extends GeoPointView {
   accuracy?: number | null;
 }
 
+/** Маршрут «ресторан → клиент» по дорогам (DLV-6); нет — маршрутизатор недоступен. */
+export interface DeliveryRouteView {
+  distanceMeters: number;
+  path: GeoPointView[];
+}
+
 export interface DeliveryTaskView {
   id: string;
   orderId: string;
@@ -29,6 +35,7 @@ export interface DeliveryTaskView {
   acceptedAt: string | null;
   pickedUpAt: string | null;
   deliveredAt: string | null;
+  route?: DeliveryRouteView | null;
 }
 
 export interface CourierProfileView {
@@ -55,6 +62,7 @@ export interface CourierPositionView {
   position: PositionView | null;
   pickup: GeoPointView;
   dropoff: GeoPointView;
+  route?: DeliveryRouteView | null;
 }
 
 /**

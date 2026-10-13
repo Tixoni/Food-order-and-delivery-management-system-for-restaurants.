@@ -108,6 +108,21 @@ type CurrentUserView {
 }
 
 """
+Маршрут от ресторана до клиента по дорогам (DLV-6)
+"""
+type DeliveryRoute {
+  """
+  Длина пути по дорогам, метры
+  """
+  distanceMeters: Int!
+
+  """
+  Упрощённая линия для карты
+  """
+  path: [GeoPoint!]!
+}
+
+"""
 Доставка глазами курьера: откуда, куда, кому
 """
 type DeliveryTask {
@@ -133,6 +148,11 @@ type DeliveryTask {
   """
   restaurant: Restaurant
   restaurantId: ID
+
+  """
+  Нет — маршрутизатор недоступен: карта рисует прямую
+  """
+  route: DeliveryRoute
 
   """
   PENDING, ASSIGNED, PICKED_UP, DELIVERED, CANCELLED
@@ -477,6 +497,11 @@ type OrderCourierPosition {
   Нет — курьер ещё не назначен или его позиция устарела
   """
   position: CourierLocation
+
+  """
+  Нет — маршрутизатор недоступен: карта рисует прямую
+  """
+  route: DeliveryRoute
 
   """
   Статус доставки

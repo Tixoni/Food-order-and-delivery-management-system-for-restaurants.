@@ -148,6 +148,13 @@ export function CourierPage() {
   );
 }
 
+/** «4,2 км» / «850 м». */
+function kilometers(meters: number): string {
+  return meters < 1000
+    ? `${Math.round(meters / 10) * 10} м`
+    : `${(meters / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} км`;
+}
+
 function statusText(status: string): string {
   return (
     {
@@ -185,6 +192,8 @@ function OfferCard({
       </p>
       <p className="item__note">
         Куда: {offer.delivery.dropoffAddress ?? "адрес появится после принятия"}
+        {offer.delivery.route &&
+          ` · от ресторана ${kilometers(offer.delivery.route.distanceMeters)}`}
       </p>
       <p className="courier-offer__timer">
         {expired ? (
@@ -248,6 +257,12 @@ function DeliveryCard({
         <dd>{delivery.restaurant?.name ?? "—"}</dd>
         <dt>Адрес клиента</dt>
         <dd>{delivery.dropoffAddress ?? "—"}</dd>
+        {delivery.route && (
+          <>
+            <dt>Путь</dt>
+            <dd>{kilometers(delivery.route.distanceMeters)} от ресторана по дорогам</dd>
+          </>
+        )}
         {delivery.contactPhone && (
           <>
             <dt>Телефон</dt>
@@ -277,6 +292,7 @@ function DeliveryCard({
           dropoff={delivery.dropoff}
           courier={courier}
           courierLabel="вы"
+          route={delivery.route?.path}
         />
       </Suspense>
 

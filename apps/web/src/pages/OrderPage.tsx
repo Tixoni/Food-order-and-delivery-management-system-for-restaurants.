@@ -318,6 +318,7 @@ function CourierOnMap({ orderId }: { orderId: string }) {
           pickup={info.pickup}
           dropoff={info.dropoff}
           courier={assigned && position && !stale ? position : null}
+          route={info.route?.path}
         />
       </Suspense>
       {assigned && (

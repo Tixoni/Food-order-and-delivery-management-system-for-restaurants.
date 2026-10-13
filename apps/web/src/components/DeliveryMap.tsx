@@ -9,6 +9,8 @@ interface Props {
   courier?: GeoPoint | null;
   /** Подпись к точке курьера: «вы» для курьера, «курьер» для клиента. */
   courierLabel?: string;
+  /** Путь по дорогам; нет — пунктирная прямая (маршрутизатор недоступен). */
+  route?: GeoPoint[] | null;
 }
 
 const toLatLng = (point: GeoPoint): [number, number] => [point.latitude, point.longitude];
@@ -31,8 +33,15 @@ function FitBounds({ points }: { points: GeoPoint[] }) {
  * больше всего остального клиентского кода, а нужна только на экране
  * отслеживания и у курьера.
  */
-export default function DeliveryMap({ pickup, dropoff, courier, courierLabel = "курьер" }: Props) {
-  const points = courier ? [pickup, dropoff, courier] : [pickup, dropoff];
+export default function DeliveryMap({
+  pickup,
+  dropoff,
+  courier,
+  courierLabel = "курьер",
+  route,
+}: Props) {
+  const line = route && route.length >= 2 ? route : null;
+  const points = [pickup, dropoff, ...(courier ? [courier] : []), ...(line ?? [])];
   return (
     <MapContainer
       center={toLatLng(courier ?? pickup)}
@@ -45,10 +54,17 @@ export default function DeliveryMap({ pickup, dropoff, courier, courierLabel = "
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <FitBounds points={points} />
-      <Polyline
-        positions={[toLatLng(pickup), toLatLng(dropoff)]}
-        pathOptions={{ color: "#6b6864", weight: 2, dashArray: "6 6" }}
-      />
+      {line ? (
+        <Polyline
+          positions={line.map(toLatLng)}
+          pathOptions={{ color: "#b4491f", weight: 4, opacity: 0.75 }}
+        />
+      ) : (
+        <Polyline
+          positions={[toLatLng(pickup), toLatLng(dropoff)]}
+          pathOptions={{ color: "#6b6864", weight: 2, dashArray: "6 6" }}
+        />
+      )}
       <CircleMarker
         center={toLatLng(pickup)}
         radius={8}

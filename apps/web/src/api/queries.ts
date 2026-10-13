@@ -357,6 +357,13 @@ export const COURIER_POSITION = gql`
         latitude
         longitude
       }
+      route {
+        distanceMeters
+        path {
+          latitude
+          longitude
+        }
+      }
     }
   }
 `;
@@ -443,6 +450,13 @@ const DELIVERY_TASK_FIELDS = gql`
     dropoff {
       latitude
       longitude
+    }
+    route {
+      distanceMeters
+      path {
+        latitude
+        longitude
+      }
     }
   }
 `;
@@ -673,6 +687,12 @@ export interface CourierLocation extends GeoPoint {
   at: string;
 }
 
+/** Маршрут от ресторана до клиента по дорогам; null — маршрутизатор недоступен. */
+export interface DeliveryRoute {
+  distanceMeters: number;
+  path: GeoPoint[];
+}
+
 export interface DeliveryTask {
   id: string;
   orderId: string;
@@ -685,6 +705,7 @@ export interface DeliveryTask {
   restaurant: { id: string; name: string } | null;
   pickup: GeoPoint;
   dropoff: GeoPoint;
+  route: DeliveryRoute | null;
 }
 
 export interface CourierDashboardData {
@@ -700,4 +721,5 @@ export interface OrderCourierPosition {
   position: CourierLocation | null;
   pickup: GeoPoint;
   dropoff: GeoPoint;
+  route: DeliveryRoute | null;
 }
