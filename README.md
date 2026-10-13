@@ -94,5 +94,6 @@ docker compose -f infra/compose/docker-compose.yml --profile core up -d
 - доставка: подбор, переназначение, позиция, вручение — `node infra/verification/delivery-e2e.mjs`; режимы отказов эмулятора меняются на лету: `POST http://localhost:13010/_emulator/settings`;
 - маршрутизатор: подбор по дорогам, маршрут на экранах, работа при остановленном OSRM — `node infra/verification/routing-e2e.mjs`;
 - задержка координаты курьера до клиента по WebSocket (PERF-3, ≤ 2 с) — `node infra/verification/perf3-latency.mjs` (`SAMPLES`, `CLIENTS` — число координат и подписчиков);
+- новый заказ на экране кухни после оплаты (PERF-4, ≤ 3 с) — `node infra/verification/perf4-kitchen.mjs`;
 - регистрация с подтверждением e-mail — `node infra/verification/auth-register-e2e.mjs`;
 - три интерфейса вместе — вручную: клиент, кухня и курьер в трёх вкладках (у вкладок должны быть разные адреса, например `localhost`, `127.0.0.1` и `127.0.0.2`, — иначе сеансы делят одну куку входа); у курьера галочка «Имитация движения» двигает его к цели без GPS.
