@@ -29,6 +29,7 @@
     "db:migrate": "node infra/migrations/migrate.mjs",
     "env:up:apps": "docker compose -f infra/compose/docker-compose.yml --profile apps up -d --build",
     "db:seed": "node infra/seed/seed.mjs",
+    "osrm:prepare": "node infra/osrm/prepare.mjs",
     "db:reset": "npm run db:migrate && npm run db:seed",
     "auth:bind": "node infra/keycloak/bind-staff.mjs"
   },

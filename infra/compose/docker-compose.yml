@@ -6,13 +6,13 @@ name: food-delivery
 #   core  — база, кэш, брокер: повседневная разработка
 #   auth  — плюс провайдер идентификации
 #   apps  — инфраструктура плюс сами сервисы в контейнерах
+#   geo   — маршрутизатор OSRM (карту готовит npm run osrm:prepare)
 #   full  — всё сразу: демонстрация и нагрузочное тестирование
 #
 # Запуск:  npm run env:up          (профиль core)
 #          npm run env:up:full
 #
-# Профили observability и geo добавляются в итерации 4 вместе
-# с соответствующими компонентами.
+# Профиль observability добавляется в итерации 4 вместе с компонентами.
 #
 # ВАЖНО: порты публикуются в диапазоне 1xxxx, а не в стандартных 5432/6379/9092.
 # Причина — на машине разработчика может быть установлена своя PostgreSQL
@@ -411,8 +411,27 @@ services:
       # Сроки подбора: радиус 3 км (DLV-3) и 90 с на ответ курьера (DLV-4)
       DISPATCH_RADIUS_METERS: ${DISPATCH_RADIUS_METERS:-3000}
       OFFER_TTL_SECONDS: ${OFFER_TTL_SECONDS:-90}
+      # Маршрутизатор необязателен: без профиля geo подбор и прогноз — по прямой (REL-2)
+      OSRM_URL: ${OSRM_URL:-http://osrm:5000}
     ports:
       - "${DELIVERY_PORT:-13004}:3004"
+
+  # ─────────────────────────────────────────────────────────────
+  # Маршрутизатор OSRM (DLV-6): время в пути по дорогам для подбора
+  # курьера, маршрут и прогноз доставки. Карту нужно подготовить один раз:
+  #   npm run osrm:prepare   (Москва, ~85 МБ карты, ~30 с подготовки)
+  # Сервисы от него не зависят (depends_on нет): без маршрутизатора
+  # delivery считает по прямой — так проверяется REL-2.
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
+    container_name: fd-osrm
+    profiles: ["geo", "full"]
+    restart: unless-stopped
+    command: ["osrm-routed", "--algorithm", "mld", "/data/Moscow.osrm"]
+    volumes:
+      - ../osrm/data:/data:ro
+    ports:
+      - "${OSRM_PORT:-15000}:5000"
 
 volumes:
   postgres-data:

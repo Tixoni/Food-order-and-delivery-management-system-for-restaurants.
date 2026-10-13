@@ -8,6 +8,8 @@ import {
 } from "@food-delivery/service-kit";
 import { DELIVERY_CONFIG, loadConfig } from "./config/configuration";
 import { DISPATCH_SETTINGS } from "./application/dispatch-settings";
+import { Routing } from "./application/routing";
+import { ROUTE_PLANNER } from "./application/ports/route-planner";
 import { DELIVERY_REPOSITORY } from "./application/ports/delivery.repository";
 import { LOCATION_HISTORY, POSITION_CACHE } from "./application/ports/positions";
 import { CourierUseCase } from "./application/use-cases/courier.use-case";
@@ -21,6 +23,8 @@ import { BatchedLocationHistory } from "./infrastructure/locations/batched-locat
 import { RedisPositions } from "./infrastructure/locations/redis-positions";
 import { DatabaseReadinessCheck } from "./infrastructure/persistence/database-readiness.check";
 import { SqlDeliveryRepository } from "./infrastructure/persistence/sql-delivery.repository";
+import { NoRoutePlanner, OsrmRoutePlanner } from "./infrastructure/routing/osrm-route-planner";
+import { createLogger } from "@food-delivery/shared";
 import {
   AdminCouriersController,
   CourierController,
@@ -74,6 +78,21 @@ const config = loadConfig();
     { provide: POSITION_CACHE, useExisting: RedisPositions },
     BatchedLocationHistory,
     { provide: LOCATION_HISTORY, useExisting: BatchedLocationHistory },
+    // Маршрутизатор необязателен (REL-2): без OSRM_URL всё считается по прямой.
+    {
+      provide: ROUTE_PLANNER,
+      useFactory: () =>
+        config.routing.url
+          ? new OsrmRoutePlanner({
+              url: config.routing.url,
+              timeoutMs: config.routing.timeoutMs,
+              logger: createLogger({ service: "delivery", level: config.logLevel }).child({
+                component: "routing",
+              }),
+            })
+          : new NoRoutePlanner(),
+    },
+    Routing,
 
     DispatchUseCase,
     CourierUseCase,

@@ -4,7 +4,8 @@ import { DataSource } from "typeorm";
 import { DELIVERY_EVENT_TYPES } from "@food-delivery/contracts";
 import { CourierUseCase } from "../../application/use-cases/courier.use-case";
 import { DispatchUseCase } from "../../application/use-cases/dispatch.use-case";
-import { InMemoryPositions } from "../../application/use-cases/in-memory.doubles";
+import { Routing } from "../../application/routing";
+import { FakeRoutePlanner, InMemoryPositions } from "../../application/use-cases/in-memory.doubles";
 import type { DeliveryConfig } from "../../config/configuration";
 import { BatchedLocationHistory } from "../locations/batched-location-history";
 import { SqlDeliveryRepository, SqlDeliveryTx } from "./sql-delivery.repository";
@@ -31,6 +32,7 @@ run("доставка на PostgreSQL + PostGIS", () => {
   let couriers: CourierUseCase;
   let history: BatchedLocationHistory;
   const positions = new InMemoryPositions();
+  const routes = new FakeRoutePlanner();
   const settings = { radiusMeters: 3000, offerTtlSeconds: 90, freshSeconds: 120 };
 
   // Каждый прогон — в своём районе: точки прошлых прогонов не мешают подбору.
@@ -77,12 +79,13 @@ run("доставка на PostgreSQL + PostGIS", () => {
     await db.query(`UPDATE delivery_assignments SET response = 'CANCELLED', responded_at = now()
                      WHERE response IS NULL`);
     repository = new SqlDeliveryRepository(db);
-    dispatch = new DispatchUseCase(repository, settings);
+    const routing = new Routing(routes, repository);
+    dispatch = new DispatchUseCase(repository, settings, routing);
     history = new BatchedLocationHistory(db, {
       logLevel: "error",
       locations: { flushIntervalMs: 1000, maxBuffer: 1000, positionTtlSeconds: 60 },
     } as DeliveryConfig);
-    couriers = new CourierUseCase(repository, positions, history, dispatch);
+    couriers = new CourierUseCase(repository, positions, history, dispatch, routing);
   });
 
   afterAll(async () => {
@@ -229,6 +232,47 @@ run("доставка на PostgreSQL + PostGIS", () => {
 
     expect(await openOfferOf(only.id)).toMatchObject({ sequence: 2 });
     await db.query(`UPDATE couriers SET status = 'offline' WHERE id = $1`, [only.id]);
+  });
+
+  it("порядок из маршрутизатора применяется в SQL: предложение — дальнему по прямой", async () => {
+    const spot = north(45_000);
+    const near = await addCourier(north(100, spot));
+    const far = await addCourier(north(900, spot));
+    // Ближнего от ресторана отделяет железная дорога. Координаты приходят
+    // из PostGIS — сравнение с допуском, а не точное.
+    const original = routes.road;
+    routes.road = (from, to) =>
+      Math.abs(from.latitude - north(100, spot).latitude) < 1e-5 ? 6000 : original(from, to);
+
+    try {
+      const orderId = randomUUID();
+      const { deliveryId } = await request(orderId, spot);
+
+      expect(await openOfferOf(far.id)).toBeDefined();
+      expect(await openOfferOf(near.id)).toBeUndefined();
+      // Те же кандидаты без блокировки — для ранжирования
+      const found = await repository.candidates(deliveryId, 3000, 120, 10);
+      expect(found?.candidates.map((c) => c.courierId)).toEqual([near.id]);
+    } finally {
+      routes.road = original;
+      await db.query(`UPDATE couriers SET status = 'offline' WHERE id = ANY($1)`, [
+        [near.id, far.id],
+      ]);
+    }
+  });
+
+  it("маршрут хранится линией PostGIS и читается обратно; повторная запись не затирает", async () => {
+    const spot = north(47_000);
+    const { deliveryId } = await request(randomUUID(), spot);
+    const path = [spot, north(500, spot), north(1500, spot)];
+
+    await repository.saveRoute(deliveryId, { distanceMeters: 1800, path });
+    await repository.saveRoute(deliveryId, { distanceMeters: 1, path: [spot, spot] });
+
+    const route = await repository.routeOf(deliveryId);
+    expect(route?.distanceMeters).toBe(1800);
+    expect(route?.path).toHaveLength(3);
+    expect(route?.path[2].latitude).toBeCloseTo(path[2].latitude, 5);
   });
 
   it("курьер проходит путь до вручения; события в outbox с ключом заказа", async () => {

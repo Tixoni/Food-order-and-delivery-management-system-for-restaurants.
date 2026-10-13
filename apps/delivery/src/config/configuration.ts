@@ -29,6 +29,11 @@ export interface ServiceConfig {
     /** Как часто фоновый процесс ищет просроченные предложения. */
     sweepIntervalMs: number;
   };
+  /**
+   * Маршрутизатор OSRM (DLV-6). Необязателен: `url` = null — подбор и
+   * прогноз по прямой (REL-2).
+   */
+  routing: { url: string | null; timeoutMs: number };
   locations: {
     /** Сколько живёт актуальная позиция в кэше без обновлений. */
     positionTtlSeconds: number;
@@ -121,6 +126,11 @@ export function loadConfig(): ServiceConfig {
       offerTtlSeconds: numeric("OFFER_TTL_SECONDS", 90),
       freshSeconds: numeric("COURIER_FRESH_SECONDS", 120),
       sweepIntervalMs: numeric("OFFER_SWEEP_INTERVAL_MS", 1000),
+    },
+    routing: {
+      // Пустая строка — маршрутизатор выключен намеренно.
+      url: (process.env.OSRM_URL ?? "http://localhost:15000").trim() || null,
+      timeoutMs: numeric("OSRM_TIMEOUT_MS", 500),
     },
     locations: {
       positionTtlSeconds: numeric("POSITION_TTL_SECONDS", 60),

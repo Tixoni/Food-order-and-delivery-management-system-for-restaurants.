@@ -6,6 +6,7 @@ import type { VehicleType } from "../../domain/geo";
 import { domainCall } from "../errors";
 import { DELIVERY_REPOSITORY, type DeliveryRepository } from "../ports/delivery.repository";
 import { POSITION_CACHE, type PositionCache } from "../ports/positions";
+import { Routing } from "../routing";
 import { courierView } from "./courier.use-case";
 
 export interface TrackingRequester {
@@ -29,6 +30,7 @@ export class TrackingUseCase {
   constructor(
     @Inject(DELIVERY_REPOSITORY) private readonly deliveries: DeliveryRepository,
     @Inject(POSITION_CACHE) private readonly positions: PositionCache,
+    private readonly routing: Routing,
   ) {}
 
   async courierPosition(orderId: string, requester: TrackingRequester) {
@@ -43,7 +45,10 @@ export class TrackingUseCase {
     // Позиция показывается, пока курьер едет к ресторану или к клиенту.
     const visible =
       state.courierId && (state.status === "ASSIGNED" || state.status === "PICKED_UP");
-    const position = visible ? await this.positions.get(state.courierId!) : null;
+    const [position, route] = await Promise.all([
+      visible ? this.positions.get(state.courierId!) : null,
+      this.routing.deliveryRoute(delivery),
+    ]);
     return {
       orderId,
       deliveryId: state.id,
@@ -54,6 +59,9 @@ export class TrackingUseCase {
       position,
       dropoff: state.dropoff,
       pickup: state.pickup,
+      // Путь по дорогам для карты клиента; без маршрутизатора — null,
+      // и карта рисует прямую.
+      route,
     };
   }
 

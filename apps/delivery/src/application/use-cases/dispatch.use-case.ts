@@ -11,6 +11,7 @@ import { Delivery, Offer } from "../../domain/delivery";
 import { geoPoint } from "../../domain/geo";
 import { deliveryEvents } from "../delivery-events";
 import { DISPATCH_SETTINGS, type DispatchSettings } from "../dispatch-settings";
+import { Routing } from "../routing";
 import { domainCall } from "../errors";
 import {
   DELIVERY_REPOSITORY,
@@ -31,7 +32,8 @@ export type OfferOutcome = "offered" | "not-found" | "skipped";
  * подбор не запускает: два триггера без общего ключа дали бы двойное
  * назначение.
  *
- * Предложения уходят курьерам по очереди, от ближнего к дальнему. Отказ
+ * Предложения уходят курьерам по очереди, от ближнего к дальнему — по
+ * времени в пути, если маршрутизатор доступен, иначе по прямой. Отказ
  * или молчание 90 с — следующему; кандидаты кончились — событие
  * `CourierNotFound`, решение за `order` (он повторит запрос позже
  * с новым ключом, а оператору поднимет флаг).
@@ -41,6 +43,7 @@ export class DispatchUseCase {
   constructor(
     @Inject(DELIVERY_REPOSITORY) private readonly deliveries: DeliveryRepository,
     @Inject(DISPATCH_SETTINGS) private readonly settings: DispatchSettings,
+    private readonly routing: Routing,
   ) {}
 
   async requestCourier(
@@ -134,6 +137,8 @@ export class DispatchUseCase {
    * вызов ничего не делает.
    */
   async offerNext(deliveryId: string, now = new Date()): Promise<OfferOutcome> {
+    // Порядок по маршруту — до транзакции: блокировки не ждут сетевого ответа.
+    const preferred = await this.routing.rankCandidates(deliveryId, this.settings);
     return domainCall(() =>
       this.deliveries.transaction(async (tx) => {
         const delivery = await tx.deliveryById(deliveryId);
@@ -148,6 +153,7 @@ export class DispatchUseCase {
               delivery,
               this.settings.radiusMeters,
               this.settings.freshSeconds,
+              preferred,
             );
 
             if (!candidate) {

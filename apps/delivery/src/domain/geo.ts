@@ -32,18 +32,36 @@ export function distanceMeters(a: GeoPoint, b: GeoPoint): number {
 
 export type VehicleType = "foot" | "bike" | "car";
 
-/** Средняя скорость в городе, км/ч — грубая оценка до подключения маршрутизатора (DLV-6). */
+/**
+ * Средняя скорость в городе с остановками и пробками, км/ч. Время в пути
+ * считается как длина пути по дорогам, делённая на эту скорость: время
+ * самого OSRM — для машины по пустым улицам, курьеру на велосипеде или
+ * пешком оно не подходит, а машине в часы пик даёт заниженный прогноз.
+ */
 const SPEED_KMH: Record<VehicleType, number> = { foot: 5, bike: 14, car: 20 };
 
-/** Улицы не прямые: путь по ним в среднем на 40 % длиннее прямой. */
+/**
+ * Улицы не прямые: путь по ним в среднем на 40 % длиннее прямой
+ * (медиана 1,41 на 200 маршрутах по Москве — спайк OSRM). Нужна, только
+ * когда маршрутизатор недоступен.
+ */
 const DETOUR = 1.4;
 
+/** Время в пути по дорогам, секунды. */
+export function travelSeconds(roadMeters: number, vehicle: VehicleType): number {
+  return (roadMeters / 1000 / SPEED_KMH[vehicle]) * 3600;
+}
+
 /**
- * Прогноз времени в пути, минуты. Пока без OSRM: прямая, поправка на
- * извилистость улиц и средняя скорость транспорта. Прогноз по маршруту —
- * шаг 3.D7, за размыкателем цепи.
+ * Прогноз времени в пути, минуты (DLV-6): по длине маршрута, а без
+ * маршрутизатора — по прямой с поправкой на извилистость улиц.
  */
-export function etaMinutes(from: GeoPoint, to: GeoPoint, vehicle: VehicleType): number {
-  const km = (distanceMeters(from, to) * DETOUR) / 1000;
-  return Math.max(1, Math.ceil((km / SPEED_KMH[vehicle]) * 60));
+export function etaMinutes(
+  from: GeoPoint,
+  to: GeoPoint,
+  vehicle: VehicleType,
+  roadMeters: number | null = null,
+): number {
+  const meters = roadMeters ?? distanceMeters(from, to) * DETOUR;
+  return Math.max(1, Math.ceil(travelSeconds(meters, vehicle) / 60));
 }

@@ -5,9 +5,11 @@ import type { DomainEvent } from "@food-delivery/shared";
 import { Courier, type CourierState } from "../../domain/courier";
 import { Delivery, Offer, type DeliveryState, type OfferState } from "../../domain/delivery";
 import type { GeoPoint, VehicleType } from "../../domain/geo";
+import type { Route } from "../../application/ports/route-planner";
 import {
   DuplicateDeliveryError,
   type Candidate,
+  type CandidateInfo,
   type CourierDashboard,
   type DeliveryRepository,
   type DeliveryTx,
@@ -42,6 +44,17 @@ const OFFER_COLUMNS = `
 
 const POINT = (lon: string, lat: string) =>
   `ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography`;
+
+/** Строка кандидата: доставка без кандидатов даёт одну строку с `id = null`. */
+interface CandidateRow {
+  pickup_lat: string;
+  pickup_lon: string;
+  id: string | null;
+  vehicle_type: string;
+  distance: string;
+  lat: string;
+  lon: string;
+}
 
 /** Нарушение уникальности в PostgreSQL. */
 const UNIQUE_VIOLATION = "23505";
@@ -105,6 +118,80 @@ export class SqlDeliveryRepository implements DeliveryRepository {
       `SELECT ${COURIER_COLUMNS} FROM couriers c ORDER BY c.full_name`,
     );
     return rows.map(toCourier);
+  }
+
+  async candidates(deliveryId: string, radiusMeters: number, freshSeconds: number, limit: number) {
+    // Те же условия, что у nearestCandidate, но без блокировки: чтение
+    // только для ранжирования, решение принимается в транзакции.
+    const rows: CandidateRow[] = await this.dataSource.query(
+      `SELECT ST_Y(d.pickup_location::geometry) AS pickup_lat,
+              ST_X(d.pickup_location::geometry) AS pickup_lon,
+              n.id, n.vehicle_type, n.distance,
+              ST_Y(n.last_location::geometry) AS lat, ST_X(n.last_location::geometry) AS lon
+         FROM deliveries d
+         LEFT JOIN LATERAL (
+           SELECT c.id, c.vehicle_type, c.last_location,
+                  c.last_location <-> d.pickup_location AS distance
+             FROM couriers c
+            WHERE c.status = 'available'
+              AND c.is_active
+              AND c.user_id IS NOT NULL
+              AND c.last_location_at > now() - make_interval(secs => $2)
+              AND ST_DWithin(c.last_location, d.pickup_location, $3)
+              AND NOT EXISTS (
+                    SELECT 1 FROM delivery_assignments a
+                     WHERE a.delivery_id = d.id AND a.courier_id = c.id
+                       AND a.offered_at >= d.search_started_at)
+            ORDER BY c.last_location <-> d.pickup_location
+            LIMIT $4) n ON true
+        WHERE d.id = $1 AND d.status = 'PENDING'
+        ORDER BY n.distance`,
+      [deliveryId, freshSeconds, radiusMeters, limit],
+    );
+    if (rows.length === 0) return null;
+    const pickup = { latitude: Number(rows[0].pickup_lat), longitude: Number(rows[0].pickup_lon) };
+    const candidates: CandidateInfo[] = rows
+      .filter((row) => row.id !== null)
+      .map((row) => ({
+        courierId: row.id!,
+        vehicleType: row.vehicle_type as VehicleType,
+        position: { latitude: Number(row.lat), longitude: Number(row.lon) },
+        distanceMeters: Number(row.distance),
+      }));
+    return { pickup, candidates };
+  }
+
+  async routeOf(deliveryId: string): Promise<Route | null> {
+    const [row] = await this.dataSource.query(
+      `SELECT distance_m, ST_AsGeoJSON(path::geometry, 6) AS path
+         FROM delivery_routes WHERE delivery_id = $1`,
+      [deliveryId],
+    );
+    if (!row) return null;
+    const line = JSON.parse(row.path) as { coordinates: [number, number][] };
+    return {
+      distanceMeters: Number(row.distance_m),
+      path: line.coordinates.map(([longitude, latitude]) => ({ latitude, longitude })),
+    };
+  }
+
+  async saveRoute(deliveryId: string, route: Route) {
+    // Линии нужны хотя бы две точки; у маршрута «в ту же точку» она одна.
+    const path = route.path.length === 1 ? [route.path[0], route.path[0]] : route.path;
+    if (path.length < 2) return;
+    await this.dataSource.query(
+      `INSERT INTO delivery_routes (delivery_id, distance_m, path)
+       VALUES ($1, $2, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)::geography)
+       ON CONFLICT (delivery_id) DO NOTHING`,
+      [
+        deliveryId,
+        route.distanceMeters,
+        JSON.stringify({
+          type: "LineString",
+          coordinates: path.map((point) => [point.longitude, point.latitude]),
+        }),
+      ],
+    );
   }
 
   private async deliveryById(id: string) {
@@ -257,6 +344,7 @@ export class SqlDeliveryTx implements DeliveryTx {
     delivery: Delivery,
     radiusMeters: number,
     freshSeconds: number,
+    preferred: string[] | null = null,
   ): Promise<Candidate | null> {
     const { pickup } = delivery.snapshot;
     const point = POINT("$1", "$2");
@@ -269,6 +357,10 @@ export class SqlDeliveryTx implements DeliveryTx {
     // первичному ключу; условие на статус при этом перепроверяется по
     // свежей версии строки — курьер, которого только что занял другой
     // экземпляр, отсеется.
+    //
+    // Порядок из маршрутизатора (`$7`) применяется к тем же десяти
+    // ближайшим; кого в нём нет — после, по прямой. Без порядка — просто
+    // по прямой.
     const [row] = await this.query(
       `WITH nearest AS MATERIALIZED (
          SELECT c.id, c.last_location <-> ${point} AS distance
@@ -288,7 +380,7 @@ export class SqlDeliveryTx implements DeliveryTx {
          FROM nearest n
          JOIN couriers c ON c.id = n.id
         WHERE c.status = 'available'
-        ORDER BY n.distance
+        ORDER BY COALESCE(array_position($7::uuid[], n.id), 2147483647), n.distance
         LIMIT 1
         FOR UPDATE OF c SKIP LOCKED`,
       [
@@ -298,6 +390,7 @@ export class SqlDeliveryTx implements DeliveryTx {
         radiusMeters,
         delivery.id,
         delivery.snapshot.searchStartedAt,
+        preferred && preferred.length > 0 ? preferred : null,
       ],
     );
     return row ? { courier: toCourier(row), distanceMeters: Number(row.distance) } : null;

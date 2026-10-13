@@ -1,6 +1,8 @@
 import type { DomainEvent } from "@food-delivery/shared";
 import type { Courier } from "../../domain/courier";
 import type { Delivery, Offer } from "../../domain/delivery";
+import type { GeoPoint, VehicleType } from "../../domain/geo";
+import type { Route } from "./route-planner";
 
 /**
  * Хранилище доставки.
@@ -16,6 +18,14 @@ import type { Delivery, Offer } from "../../domain/delivery";
 
 export interface Candidate {
   courier: Courier;
+  distanceMeters: number;
+}
+
+/** Кандидат для ранжирования по маршруту — без блокировки строки. */
+export interface CandidateInfo {
+  courierId: string;
+  position: GeoPoint;
+  vehicleType: VehicleType;
   distanceMeters: number;
 }
 
@@ -37,11 +47,16 @@ export interface DeliveryTx {
    * DLV-3: ближайший свободный курьер со свежей позицией в радиусе от точки
    * выдачи, которому этот заказ не предлагали в текущем раунде поиска.
    * Строка курьера блокируется; занятые другими транзакциями пропускаются.
+   *
+   * `preferred` — порядок по времени в пути, посчитанный маршрутизатором
+   * до транзакции: первым берётся первый из них, кто ещё свободен.
+   * Без порядка, или если все из него уже заняты, — ближайший по прямой.
    */
   nearestCandidate(
     delivery: Delivery,
     radiusMeters: number,
     freshSeconds: number,
+    preferred?: string[] | null,
   ): Promise<Candidate | null>;
 
   openOfferOf(deliveryId: string): Promise<Offer | null>;
@@ -79,6 +94,23 @@ export interface DeliveryRepository {
   /** Кто шлёт координату и куда её разослать — одним запросом. */
   locationContext(userId: string): Promise<LocationContext | null>;
   listCouriers(): Promise<Courier[]>;
+
+  /**
+   * Кандидаты для ожидающей доставки — те же условия, что у
+   * `nearestCandidate`, но без блокировки: по ним маршрутизатор считает
+   * время в пути, а за сетевым ответом транзакция не ждёт.
+   * `null` — доставки нет или она уже не ждёт курьера.
+   */
+  candidates(
+    deliveryId: string,
+    radiusMeters: number,
+    freshSeconds: number,
+    limit: number,
+  ): Promise<{ pickup: GeoPoint; candidates: CandidateInfo[] } | null>;
+  /** Маршрут «ресторан → клиент», посчитанный раньше. */
+  routeOf(deliveryId: string): Promise<Route | null>;
+  /** Сохранить маршрут; уже сохранённый не перезаписывается. */
+  saveRoute(deliveryId: string, route: Route): Promise<void>;
 }
 
 export const DELIVERY_REPOSITORY = Symbol("DeliveryRepository");

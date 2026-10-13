@@ -7,9 +7,15 @@ import {
   NotFoundError,
 } from "@food-delivery/shared";
 import type { CourierState } from "../../domain/courier";
+import { distanceMeters } from "../../domain/geo";
+import { Routing } from "../routing";
 import { CourierUseCase } from "./courier.use-case";
 import { DispatchUseCase } from "./dispatch.use-case";
-import { InMemoryDeliveryRepository, InMemoryPositions } from "./in-memory.doubles";
+import {
+  FakeRoutePlanner,
+  InMemoryDeliveryRepository,
+  InMemoryPositions,
+} from "./in-memory.doubles";
 import { TrackingUseCase } from "./tracking.use-case";
 
 const RESTAURANT = { latitude: 55.75, longitude: 37.6 };
@@ -25,9 +31,11 @@ const north = (meters: number) => ({
 function setup() {
   const repo = new InMemoryDeliveryRepository();
   const positions = new InMemoryPositions();
-  const dispatch = new DispatchUseCase(repo, SETTINGS);
-  const couriers = new CourierUseCase(repo, positions, positions, dispatch);
-  const tracking = new TrackingUseCase(repo, positions);
+  const routes = new FakeRoutePlanner();
+  const routing = new Routing(routes, repo);
+  const dispatch = new DispatchUseCase(repo, SETTINGS, routing);
+  const couriers = new CourierUseCase(repo, positions, positions, dispatch, routing);
+  const tracking = new TrackingUseCase(repo, positions, routing);
 
   const addCourier = (
     name: string,
@@ -48,7 +56,7 @@ function setup() {
       ...overrides,
     };
     repo.addCourier(state);
-    return { id: state.id, userId: state.userId! };
+    return { id: state.id, userId: state.userId!, at };
   };
 
   const orderId = randomUUID();
@@ -72,6 +80,7 @@ function setup() {
   return {
     repo,
     positions,
+    routes,
     dispatch,
     couriers,
     tracking,
@@ -317,5 +326,102 @@ describe("позиция курьера для клиента (SEC-7)", () => {
     await expect(
       w.tracking.courierPosition(w.orderId, { userId: randomUUID(), roles: ["operator"] }),
     ).resolves.toMatchObject({ status: "ASSIGNED" });
+  });
+});
+
+describe("маршрут и время в пути (DLV-3, DLV-6)", () => {
+  /** Точка в `meters` к востоку от ресторана. */
+  const east = (meters: number) => ({
+    latitude: RESTAURANT.latitude,
+    longitude:
+      RESTAURANT.longitude + meters / (111_195 * Math.cos((RESTAURANT.latitude * Math.PI) / 180)),
+  });
+
+  it("предложение — тому, кто раньше доедет по дорогам, а не ближнему по прямой", async () => {
+    const w = setup();
+    const acrossRiver = w.addCourier("за рекой", north(400));
+    const onRoad = w.addCourier("по дороге", east(1500));
+    // До моста — крюк в пять километров
+    w.routes.road = (from, to) =>
+      from.latitude === acrossRiver.at.latitude ? 5000 : distanceMeters(from, to) * 1.3;
+
+    await w.request();
+
+    expect(w.openOffer(onRoad.id)).toBeDefined();
+    expect(w.openOffer(acrossRiver.id)).toBeUndefined();
+  });
+
+  it("учитывается транспорт: велосипедист в 1,5 км успеет раньше пешего в 600 м", async () => {
+    const w = setup();
+    const walker = w.addCourier("пеший", north(600), { vehicleType: "foot" });
+    const cyclist = w.addCourier("велосипедист", east(1500), { vehicleType: "bike" });
+
+    await w.request();
+
+    // Пеший: 840 м / 5 км/ч ≈ 10 мин; велосипед: 2100 м / 14 км/ч = 9 мин
+    expect(w.openOffer(cyclist.id)).toBeDefined();
+    expect(w.openOffer(walker.id)).toBeUndefined();
+  });
+
+  it("маршрутизатор недоступен — предложение ближнему по прямой (REL-2)", async () => {
+    const w = setup();
+    w.routes.down = true;
+    const near = w.addCourier("ближний", north(400), { vehicleType: "foot" });
+    w.addCourier("велосипедист", east(1500), { vehicleType: "bike" });
+
+    const result = await w.request();
+
+    expect(result.status).toBe("PENDING");
+    expect(w.openOffer(near.id)).toBeDefined();
+  });
+
+  it("маршрут считается один раз; его видят курьер в предложении и клиент", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200));
+    await w.request();
+    const me = { userId: courier.userId };
+    const callsBefore = w.routes.calls;
+
+    const first = await w.couriers.dashboard(me);
+    await w.couriers.dashboard(me);
+    const tracked = await w.tracking.courierPosition(w.orderId, {
+      userId: w.customerId,
+      roles: ["client"],
+    });
+
+    expect(first.offer?.delivery.route?.distanceMeters).toBeGreaterThan(0);
+    expect(tracked.route?.path).toHaveLength(2);
+    expect(w.routes.calls - callsBefore).toBe(1);
+  });
+
+  it("маршрутизатор лежал — экраны без маршрута; поднялся — маршрут появляется", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200));
+    await w.request();
+    const me = { userId: courier.userId };
+
+    w.routes.down = true;
+    expect((await w.couriers.dashboard(me)).offer?.delivery.route).toBeNull();
+
+    w.routes.down = false;
+    expect((await w.couriers.dashboard(me)).offer?.delivery.route).not.toBeNull();
+  });
+
+  it("прогноз в событии «забрал» — по длине маршрута, а не по прямой", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200), { vehicleType: "bike" });
+    // Ресторан → клиент: 7 км по дорогам при 1,7 км по прямой
+    w.routes.road = (from, to) =>
+      to.latitude === CLIENT.latitude ? 7000 : distanceMeters(from, to) * 1.4;
+    const { deliveryId } = await w.request();
+    const me = { userId: courier.userId };
+
+    await w.couriers.accept(me, w.openOffer(courier.id)!.id);
+    await w.couriers.dashboard(me);
+    await w.couriers.pickedUp(me, deliveryId);
+
+    const [event] = w.repo.eventsOfType(DELIVERY_EVENT_TYPES.orderPickedUp);
+    // 7 км / 14 км/ч = 30 мин; по прямой вышло бы 11
+    expect((event.payload as { etaMinutes: number }).etaMinutes).toBe(30);
   });
 });

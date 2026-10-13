@@ -1,16 +1,18 @@
-import type { DomainEvent } from "@food-delivery/shared";
+import { ExternalServiceError, type DomainEvent } from "@food-delivery/shared";
 import { Courier, type CourierState } from "../../domain/courier";
 import { Delivery, Offer, type DeliveryState, type OfferState } from "../../domain/delivery";
-import { distanceMeters } from "../../domain/geo";
+import { distanceMeters, type GeoPoint } from "../../domain/geo";
 import {
   DuplicateDeliveryError,
   type Candidate,
+  type CandidateInfo,
   type CourierDashboard,
   type DeliveryRepository,
   type DeliveryTx,
   type LocationContext,
 } from "../ports/delivery.repository";
 import type { LocationHistory, Position, PositionCache } from "../ports/positions";
+import type { Route, RoutePlanner } from "../ports/route-planner";
 
 /**
  * Хранилище в памяти с правилами базы: одна действующая доставка на заказ,
@@ -20,6 +22,7 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
   couriers = new Map<string, CourierState>();
   deliveries = new Map<string, DeliveryState>();
   offers = new Map<string, OfferState>();
+  readonly routes = new Map<string, Route>();
   readonly outbox: Array<{ event: DomainEvent; orderId: string }> = [];
   readonly shifts: Array<{ courierId: string; startedAt: Date; endedAt: Date | null }> = [];
 
@@ -80,6 +83,60 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
     return [...this.couriers.values()].map((state) => Courier.restore(state));
   }
 
+  async candidates(deliveryId: string, radiusMeters: number, freshSeconds: number, limit: number) {
+    const state = this.deliveries.get(deliveryId);
+    if (!state || state.status !== "PENDING") return null;
+    const candidates: CandidateInfo[] = this.eligible(
+      Delivery.restore(state),
+      radiusMeters,
+      freshSeconds,
+    )
+      .slice(0, limit)
+      .map((c) => ({
+        courierId: c.state.id,
+        position: c.state.lastLocation!,
+        vehicleType: c.state.vehicleType,
+        distanceMeters: c.distance,
+      }));
+    return { pickup: state.pickup, candidates };
+  }
+
+  async routeOf(deliveryId: string) {
+    return this.routes.get(deliveryId) ?? null;
+  }
+
+  async saveRoute(deliveryId: string, route: Route) {
+    if (!this.routes.has(deliveryId)) this.routes.set(deliveryId, structuredClone(route));
+  }
+
+  /** Условия подбора, как в SQL: свободен, на связи, в радиусе, не предлагали в этом раунде. */
+  private eligible(delivery: Delivery, radiusMeters: number, freshSeconds: number) {
+    const offered = new Set(
+      [...this.offers.values()]
+        .filter(
+          (o) => o.deliveryId === delivery.id && o.offeredAt >= delivery.snapshot.searchStartedAt,
+        )
+        .map((o) => o.courierId),
+    );
+    const now = Date.now();
+    return [...this.couriers.values()]
+      .filter(
+        (c) =>
+          c.status === "available" &&
+          c.isActive &&
+          c.userId &&
+          c.lastLocation &&
+          !offered.has(c.id) &&
+          now - (this.freshUntil.get(c.id)?.getTime() ?? 0) <= freshSeconds * 1000,
+      )
+      .map((c) => ({
+        state: c,
+        distance: distanceMeters(c.lastLocation!, delivery.snapshot.pickup),
+      }))
+      .filter((c) => c.distance <= radiusMeters)
+      .sort((a, b) => a.distance - b.distance);
+  }
+
   addCourier(state: CourierState) {
     this.couriers.set(state.id, structuredClone(state));
     if (state.lastLocationAt) this.freshUntil.set(state.id, state.lastLocationAt);
@@ -133,32 +190,19 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
         const open = this.shifts.find((s) => s.courierId === courierId && !s.endedAt);
         if (open) open.endedAt = at;
       },
-      nearestCandidate: async (delivery, radiusMeters, freshSeconds): Promise<Candidate | null> => {
-        const offered = new Set(
-          [...this.offers.values()]
-            .filter(
-              (o) =>
-                o.deliveryId === delivery.id && o.offeredAt >= delivery.snapshot.searchStartedAt,
-            )
-            .map((o) => o.courierId),
-        );
-        const now = Date.now();
-        const candidates = [...this.couriers.values()]
-          .filter(
-            (c) =>
-              c.status === "available" &&
-              c.isActive &&
-              c.userId &&
-              c.lastLocation &&
-              !offered.has(c.id) &&
-              now - (this.freshUntil.get(c.id)?.getTime() ?? 0) <= freshSeconds * 1000,
-          )
-          .map((c) => ({
-            state: c,
-            distance: distanceMeters(c.lastLocation!, delivery.snapshot.pickup),
-          }))
-          .filter((c) => c.distance <= radiusMeters)
-          .sort((a, b) => a.distance - b.distance);
+      nearestCandidate: async (
+        delivery,
+        radiusMeters,
+        freshSeconds,
+        preferred,
+      ): Promise<Candidate | null> => {
+        const rank = (id: string) => {
+          const index = preferred?.indexOf(id) ?? -1;
+          return index === -1 ? Infinity : index;
+        };
+        const candidates = this.eligible(delivery, radiusMeters, freshSeconds)
+          .slice(0, 10)
+          .sort((a, b) => rank(a.state.id) - rank(b.state.id) || a.distance - b.distance);
         const best = candidates[0];
         return best
           ? { courier: Courier.restore(best.state), distanceMeters: best.distance }
@@ -193,6 +237,30 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
         for (const event of events) this.outbox.push({ event, orderId });
       },
     };
+  }
+}
+
+/**
+ * Маршрутизатор для тестов: путь по дорогам задаётся функцией, по
+ * умолчанию — прямая с поправкой 1,4. `down` — маршрутизатор недоступен.
+ */
+export class FakeRoutePlanner implements RoutePlanner {
+  down = false;
+  calls = 0;
+  road: (from: GeoPoint, to: GeoPoint) => number | null = (from, to) =>
+    distanceMeters(from, to) * 1.4;
+
+  async roadDistances(from: GeoPoint[], to: GeoPoint) {
+    this.calls += 1;
+    if (this.down) throw new ExternalServiceError("маршрутизатор недоступен");
+    return from.map((point) => this.road(point, to));
+  }
+
+  async route(from: GeoPoint, to: GeoPoint): Promise<Route | null> {
+    this.calls += 1;
+    if (this.down) throw new ExternalServiceError("маршрутизатор недоступен");
+    const meters = this.road(from, to);
+    return meters === null ? null : { distanceMeters: Math.round(meters), path: [from, to] };
   }
 }
 

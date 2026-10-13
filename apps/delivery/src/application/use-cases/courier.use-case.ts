@@ -4,6 +4,7 @@ import type { Courier } from "../../domain/courier";
 import type { Delivery } from "../../domain/delivery";
 import { etaMinutes, geoPoint, type GeoPoint } from "../../domain/geo";
 import { deliveryEvents } from "../delivery-events";
+import { Routing } from "../routing";
 import { domainCall, toAppError } from "../errors";
 import {
   DELIVERY_REPOSITORY,
@@ -16,6 +17,7 @@ import {
   type LocationHistory,
   type PositionCache,
 } from "../ports/positions";
+import type { Route } from "../ports/route-planner";
 import { DispatchUseCase } from "./dispatch.use-case";
 
 /** Курьер в запросе: идентификатор учётной записи из проверенного токена. */
@@ -44,6 +46,7 @@ export class CourierUseCase {
     @Inject(POSITION_CACHE) private readonly positions: PositionCache,
     @Inject(LOCATION_HISTORY) private readonly history: LocationHistory,
     private readonly dispatch: DispatchUseCase,
+    private readonly routing: Routing,
   ) {}
 
   /** Экран курьера: статус, открытое предложение, текущая доставка. */
@@ -58,6 +61,12 @@ export class CourierUseCase {
       (state.lastLocation && state.lastLocationAt
         ? { ...state.lastLocation, at: state.lastLocationAt }
         : null);
+    // Маршрут «ресторан → клиент» — и в предложении: курьер решает,
+    // брать ли заказ, видя длину пути.
+    const [offerRoute, route] = await Promise.all([
+      view.offer ? this.routing.deliveryRoute(view.offer.delivery) : null,
+      view.delivery ? this.routing.deliveryRoute(view.delivery) : null,
+    ]);
     return {
       courier: courierView(view.courier),
       position,
@@ -67,10 +76,13 @@ export class CourierUseCase {
             sequence: view.offer.offer.snapshot.sequence,
             expiresAt: view.offer.offer.snapshot.expiresAt,
             // До принятия — без телефона клиента (SEC-4).
-            delivery: deliveryView(view.offer.delivery, { withContact: false }),
+            delivery: deliveryView(view.offer.delivery, {
+              withContact: false,
+              route: offerRoute,
+            }),
           }
         : null,
-      delivery: view.delivery ? deliveryView(view.delivery) : null,
+      delivery: view.delivery ? deliveryView(view.delivery, { route }) : null,
     };
   }
 
@@ -133,7 +145,12 @@ export class CourierUseCase {
     return { rejected: true };
   }
 
-  /** DLV-5: забрал заказ в ресторане. Прогноз — от ресторана до клиента. */
+  /**
+   * DLV-5: забрал заказ в ресторане. Прогноз — от ресторана до клиента
+   * по маршруту (DLV-6); `order` берёт по нему срок доставки. Маршрут
+   * к этому времени уже посчитан для экрана курьера — здесь только
+   * чтение из базы, без обращения к маршрутизатору внутри транзакции.
+   */
   async pickedUp(requester: CourierRequester, deliveryId: string, now = new Date()) {
     return domainCall(() =>
       this.deliveries.transaction(async (tx) => {
@@ -141,10 +158,12 @@ export class CourierUseCase {
         const delivery = await this.deliveryOf(tx, deliveryId);
         if (delivery.pickUp(courier.id, now)) {
           await tx.saveDelivery(delivery);
+          const route = await this.routing.storedRoute(delivery.id);
           const eta = etaMinutes(
             delivery.snapshot.pickup,
             delivery.snapshot.dropoff,
             courier.snapshot.vehicleType,
+            route?.distanceMeters ?? null,
           );
           await this.emit(tx, delivery, () =>
             deliveryEvents.pickedUp(delivery, courier.id, now, eta),
@@ -255,7 +274,10 @@ export function courierView(courier: Courier) {
   };
 }
 
-export function deliveryView(delivery: Delivery, options: { withContact?: boolean } = {}) {
+export function deliveryView(
+  delivery: Delivery,
+  options: { withContact?: boolean; route?: Route | null } = {},
+) {
   const state = delivery.snapshot;
   return {
     id: state.id,
@@ -272,5 +294,6 @@ export function deliveryView(delivery: Delivery, options: { withContact?: boolea
     acceptedAt: state.acceptedAt,
     pickedUpAt: state.pickedUpAt,
     deliveredAt: state.deliveredAt,
+    route: options.route ?? null,
   };
 }
