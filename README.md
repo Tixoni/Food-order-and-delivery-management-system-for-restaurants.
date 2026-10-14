@@ -67,9 +67,11 @@ docs/         записи архитектурных решений, исход
 docker compose -f infra/compose/docker-compose.yml --profile core up -d
 ```
 
-Профили окружения: `core`, `auth`, `apps`, `geo`, `full`.
+Профили окружения: `core`, `auth`, `apps`, `geo`, `observability`, `full`.
 
 В профилях `apps` и `full` единственный вход — обратный прокси nginx: http://localhost:13080 отдаёт клиентское приложение, GraphQL с подписками и вход `/auth`. Шлюз и каталог запущены в двух репликах (SCAL-2): прокси распределяет запросы и обходит выключенную реплику, внутренний порт прокси 8081 балансирует обращения к каталогу от шлюза и `order`. Шлюз наружу не публикуется — он доверяет адресу клиента из заголовка прокси (`TRUST_PROXY_HOPS=1`).
+
+Журналы всех сервисов — в одном месте (профиль `observability`): сервисы пишут JSON в стандартный вывод, Alloy собирает вывод контейнеров проекта в Loki, Grafana — http://localhost:13030, дашборд «Журнал действия»: все записи одного действия пользователя по сквозному идентификатору (`x-correlation-id`, есть в каждом ответе). Телефон, адрес, токены и пароли в журнал не попадают — маскируются.
 
 Маршрутизатор OSRM (профиль `geo`) читает подготовленную карту Москвы: один раз выполните `npm run osrm:prepare` (≈85 МБ карты, ≈1 мин подготовки, ≈270 МБ в `infra/osrm/data`, в git не попадает). Без маршрутизатора система работает: подбор курьера и прогноз считаются по прямой.
 
@@ -95,6 +97,7 @@ docker compose -f infra/compose/docker-compose.yml --profile core up -d
 - оформление заказа через шлюз GraphQL — `node infra/verification/checkout-e2e.mjs`;
 - доставка: подбор, переназначение, позиция, вручение — `node infra/verification/delivery-e2e.mjs`; режимы отказов эмулятора меняются на лету: `POST http://localhost:13010/_emulator/settings`;
 - маршрутизатор: подбор по дорогам, маршрут на экранах, работа при остановленном OSRM — `node infra/verification/routing-e2e.mjs`;
+- журналы в одном месте (OBS-1): действие находится по идентификатору во всех сервисах, персональных данных нет — `node infra/verification/obs1-logs.mjs`;
 - задержка координаты курьера до клиента по WebSocket (PERF-3, ≤ 2 с) — `node infra/verification/perf3-latency.mjs` (`SAMPLES`, `CLIENTS` — число координат и подписчиков);
 - новый заказ на экране кухни после оплаты (PERF-4, ≤ 3 с) — `node infra/verification/perf4-kitchen.mjs`;
 - регистрация с подтверждением e-mail — `node infra/verification/auth-register-e2e.mjs`;

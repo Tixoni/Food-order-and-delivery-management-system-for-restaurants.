@@ -7,12 +7,11 @@ name: food-delivery
 #   auth  — плюс провайдер идентификации
 #   apps  — инфраструктура плюс сами сервисы в контейнерах
 #   geo   — маршрутизатор OSRM (карту готовит npm run osrm:prepare)
+#   observability — журналы всех контейнеров в одном месте: Loki, Alloy, Grafana
 #   full  — всё сразу: демонстрация и нагрузочное тестирование
 #
 # Запуск:  npm run env:up          (профиль core)
 #          npm run env:up:full
-#
-# Профиль observability добавляется в итерации 4 вместе с компонентами.
 #
 # ВАЖНО: порты публикуются в диапазоне 1xxxx, а не в стандартных 5432/6379/9092.
 # Причина — на машине разработчика может быть установлена своя PostgreSQL
@@ -479,7 +478,61 @@ services:
     ports:
       - "${OSRM_PORT:-15000}:5000"
 
+  # ─────────────────────────────────────────────────────────────
+  # Наблюдаемость (OBS-1). Сервисы пишут JSON в стандартный вывод; Alloy
+  # читает вывод контейнеров этого проекта и складывает в Loki; Grafana —
+  # единый интерфейс поиска: все записи одного действия по сквозному
+  # идентификатору (дашборд «Журнал действия»).
+  # ─────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: fd-loki
+    profiles: ["observability", "full"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - loki-data:/loki
+    ports:
+      - "${LOKI_PORT:-13100}:3100"
+
+  alloy:
+    image: grafana/alloy:v1.9.0
+    container_name: fd-alloy
+    profiles: ["observability", "full"]
+    restart: unless-stopped
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    environment:
+      # Чьи контейнеры собирать: проект Compose (name: в начале файла)
+      LOG_PROJECT: ${LOG_PROJECT:-food-delivery}
+    volumes:
+      - ../observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Доступ к Docker — только чтобы читать вывод контейнеров. Для учебного
+      # стенда приемлемо; в целевой схеме журналы собирает агент узла кластера.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    container_name: fd-grafana
+    profiles: ["observability", "full"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Дашборды открываются без входа — для показа на защите; изменять — после входа
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_LANGUAGE: ru-RU
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-13030}:3000"
+    depends_on:
+      - loki
+
 volumes:
   postgres-data:
   kafka-data:
   keycloak-data:
+  loki-data:

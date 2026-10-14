@@ -1,0 +1,72 @@
+// Сбор журналов в одном месте (OBS-1): вывод контейнеров проекта → Loki.
+//
+// Сервисы пишут строки JSON в стандартный вывод и ничего не знают о Loki:
+// сбором занимается отдельный процесс. Поменять хранилище журналов —
+// значит поменять этот файл, а не код пяти сервисов.
+
+// Только контейнеры этого проекта Compose — чужие контейнеры на машине
+// разработчика не читаются вовсе.
+discovery.docker "project" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=" + sys.env("LOG_PROJECT")]
+  }
+}
+
+// Метки потока: сервис и имя контейнера. Реплики (gateway-2, catalog-2) —
+// тот же сервис: номер реплики отрезается, различает их метка container.
+discovery.relabel "project" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "(.+?)(-[0-9]+)?"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "project" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.project.targets
+  relabel_rules    = discovery.relabel.project.rules
+  refresh_interval = "5s"
+  forward_to       = [loki.process.json.receiver]
+}
+
+// Записи сервисов — JSON. Уровень — метка: значений четыре, по ней удобно
+// отбирать ошибки. Сквозной идентификатор — структурированные метаданные,
+// а не метка: значений у него миллионы, и как метка он раздул бы индекс.
+// Строки не в JSON (nginx, Kafka, Keycloak) проходят как есть.
+loki.process "json" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.json {
+    expressions = {
+      level          = "level",
+      correlation_id = "correlationId",
+    }
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+
+  stage.structured_metadata {
+    values = { correlation_id = "" }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
