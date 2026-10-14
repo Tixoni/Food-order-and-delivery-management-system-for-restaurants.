@@ -69,13 +69,18 @@ export class SagaScheduler implements OnApplicationBootstrap, OnApplicationShutd
       for (const entry of entries) {
         const step = entry.type.startsWith("TIMEOUT:") ? "TIMEOUT" : entry.type;
         try {
-          const outcome = await this.runner.run(entry);
+          // Шаг саги — значимое событие (холд, списание, курьер, компенсации),
+          // их несколько на заказ: в журнал на уровне info, с идентификатором
+          // оформления — шаги видны в «Журнале действия» рядом с запросами.
+          const outcome = await this.runner.run(entry, new Date(), (result) =>
+            this.logger.info("шаг саги выполнен", {
+              orderId: entry.orderId,
+              type: entry.type,
+              outcome: result,
+              attempt: entry.attempt,
+            }),
+          );
           this.steps.inc({ step, outcome });
-          this.logger.debug("шаг саги выполнен", {
-            orderId: entry.orderId,
-            type: entry.type,
-            outcome,
-          });
         } catch (error) {
           // Шаг остаётся в аренде и будет взят снова, когда она истечёт.
           this.steps.inc({ step, outcome: "error" });

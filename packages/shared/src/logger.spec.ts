@@ -94,6 +94,18 @@ describe("сокрытие чувствительных данных", () => {
     expect(masked.customer.name).toBe("Иван");
   });
 
+  it("скрывает адрес доставки в любом поле с адресом — SEC-4", () => {
+    const masked = maskSensitive({
+      dropoffAddress: "Тверская, 7, кв. 12",
+      order: { addressText: "Арбат, 10", contactPhone: "+79990000000", status: "PAID" },
+    }) as { dropoffAddress: string; order: Record<string, unknown> };
+
+    expect(masked.dropoffAddress).toBe("***");
+    expect(masked.order.addressText).toBe("***");
+    expect(masked.order.contactPhone).toBe("***");
+    expect(masked.order.status).toBe("PAID");
+  });
+
   it("распознаёт поля независимо от написания", () => {
     const masked = maskSensitive({
       card_number: "4111",

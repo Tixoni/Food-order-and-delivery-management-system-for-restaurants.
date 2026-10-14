@@ -32,6 +32,8 @@ const SENSITIVE_KEYS = [
   "expiry",
   "phone",
   "email",
+  // Адрес доставки — персональные данные (SEC-4): dropoffAddress, addressText…
+  "address",
 ];
 
 const MASK = "***";

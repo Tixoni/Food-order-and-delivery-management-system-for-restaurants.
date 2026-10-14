@@ -66,7 +66,15 @@ export class SagaRunner {
     @Inject(SAGA_SETTINGS) private readonly settings: SagaSettings,
   ) {}
 
-  async run(entry: ClaimedEntry, now = new Date()): Promise<RunOutcome> {
+  /**
+   * `observe` вызывается внутри контекста саги: запись журнала о шаге
+   * получает сквозной идентификатор оформления (OBS-1).
+   */
+  async run(
+    entry: ClaimedEntry,
+    now = new Date(),
+    observe?: (outcome: RunOutcome) => void,
+  ): Promise<RunOutcome> {
     const loaded = await this.orders.findById(entry.orderId);
     if (!loaded) {
       await this.queue.discard(entry, "заказ не найден");
@@ -74,8 +82,13 @@ export class SagaRunner {
     }
     // Шаг продолжает трассу действия, которое начало сагу: события шага,
     // записи журнала и вызовы участников связаны с оформлением заказа.
-    return runWithContext({ correlationId: loaded.saga.correlationId, source: "saga" }, () =>
-      this.dispatch(entry, loaded, now),
+    return runWithContext(
+      { correlationId: loaded.saga.correlationId, source: "saga" },
+      async () => {
+        const outcome = await this.dispatch(entry, loaded, now);
+        observe?.(outcome);
+        return outcome;
+      },
     );
   }
 

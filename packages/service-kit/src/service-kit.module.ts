@@ -8,6 +8,7 @@ import {
 import { APP_FILTER } from "@nestjs/core";
 import { AppExceptionFilter } from "./app-exception.filter";
 import { CorrelationMiddleware } from "./correlation.middleware";
+import { RequestLogMiddleware } from "./request-log.middleware";
 import { HealthController, MetricsController } from "./kit.controllers";
 import { MetricsService } from "./metrics.service";
 import { READINESS_CHECKS, SERVICE_NAME } from "./readiness";
@@ -21,7 +22,8 @@ export interface ServiceKitOptions {
 
 /**
  * Общий каркас сервиса. Подключается одной строкой и приносит:
- * проверки /health и /ready, отдачу метрик, сквозной идентификатор запроса.
+ * проверки /health и /ready, отдачу метрик, сквозной идентификатор запроса,
+ * журнал запросов и показатели RED.
  *
  * Вынесено в отдельный пакет, чтобы не повторять одно и то же в пяти сервисах:
  * исправление здесь распространяется на все сразу.
@@ -54,6 +56,7 @@ export class ServiceKitModule implements NestModule {
   }
 
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(CorrelationMiddleware).forRoutes("*");
+    // Порядок важен: журнал запроса пишется уже внутри контекста с идентификатором.
+    consumer.apply(CorrelationMiddleware, RequestLogMiddleware).forRoutes("*");
   }
 }

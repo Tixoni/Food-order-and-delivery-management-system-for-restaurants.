@@ -10,6 +10,7 @@ export * from "./correlation.middleware";
 export * from "./kit.controllers";
 export * from "./metrics.service";
 export * from "./readiness";
+export * from "./request-log.middleware";
 export * from "./resilient-redis.client";
 export * from "./service-kit.module";
 export * from "./resilience/circuit-breaker";
