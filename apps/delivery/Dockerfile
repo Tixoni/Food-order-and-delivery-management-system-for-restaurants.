@@ -35,6 +35,8 @@ COPY --from=builder --chown=node:node /app/packages/shared/package.json ./packag
 COPY --from=builder --chown=node:node /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder --chown=node:node /app/packages/service-kit/package.json ./packages/service-kit/
 COPY --from=builder --chown=node:node /app/packages/service-kit/dist ./packages/service-kit/dist
+# Своя версия jose у каркаса не поднимается в корень — без неё сервис не стартует
+COPY --from=builder --chown=node:node /app/packages/service-kit/node_modules ./packages/service-kit/node_modules
 COPY --from=builder --chown=node:node /app/packages/contracts/package.json ./packages/contracts/
 COPY --from=builder --chown=node:node /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder --chown=node:node /app/apps/delivery/package.json ./apps/delivery/
