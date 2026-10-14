@@ -24,6 +24,76 @@ name: food-delivery
 # участки в диапазоне 50000-60000 (см. netsh ... show excludedportrange),
 # и порт оттуда может внезапно перестать открываться.
 
+# Общие части сервисов с двумя репликами (SCAL-2). Образ собирает первая
+# реплика, вторая берёт готовый: две сборки в один тег одновременно
+# конфликтуют.
+x-catalog: &catalog
+  image: food-delivery/catalog:local
+  profiles: ["apps", "full"]
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+    keycloak:
+      condition: service_healthy
+  environment:
+    NODE_ENV: production
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    CATALOG_PORT: 3001
+    # Внутри общей сети обращение идёт по имени сервиса и внутреннему порту,
+    # а не по localhost и опубликованному порту.
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_USER: ${POSTGRES_USER:-app}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+    CATALOG_DB: ${CATALOG_DB:-catalog_db}
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    KAFKA_BROKERS: kafka:9092
+    # Издатель токенов — публичный адрес провайдера (KC_HOSTNAME), ключи
+    # подписи сервис забирает по внутреннему: из контейнера localhost —
+    # это сам контейнер. При запуске сервисов на машине разработчика
+    # внутренний адрес не нужен — оба совпадают.
+    KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
+    KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
+    AUTH_AUDIENCE: food-delivery-api
+
+x-gateway: &gateway
+  image: food-delivery/gateway:local
+  profiles: ["apps", "full"]
+  restart: unless-stopped
+  depends_on:
+    redis:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+    keycloak:
+      condition: service_healthy
+    proxy:
+      condition: service_started
+  environment:
+    NODE_ENV: production
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    GATEWAY_PORT: 3000
+    TRUST_PROXY_HOPS: 1
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    KAFKA_BROKERS: kafka:9092
+    KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
+    KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
+    AUTH_AUDIENCE: food-delivery-api
+    AUTH_CLIENT_ID: web
+    AUTH_ADMIN_CLIENT_ID: gateway-admin
+    AUTH_ADMIN_CLIENT_SECRET: ${AUTH_ADMIN_CLIENT_SECRET:-gateway-admin-dev-secret}
+    APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:13080}
+    CATALOG_URL: http://proxy:8081
+    ORDER_URL: http://order:3002
+    DELIVERY_URL: http://delivery:3004
+
 services:
   # ─────────────────────────────────────────────────────────────
   # PostgreSQL с географическим расширением.
@@ -182,83 +252,56 @@ services:
   # ─────────────────────────────────────────────────────────────
   # Сервис каталога. Профиль apps — чтобы при разработке можно было
   # поднять только инфраструктуру, а сам сервис запускать локально
-  # с пересборкой на лету.
+  # с пересборкой на лету. Две реплики за прокси (SCAL-2): каталог —
+  # основной поток запросов витрины. Настройки — в x-catalog выше.
   # ─────────────────────────────────────────────────────────────
   catalog:
+    <<: *catalog
     build:
       context: ../..
       dockerfile: apps/catalog/Dockerfile
-    image: food-delivery/catalog:local
     container_name: fd-catalog
-    profiles: ["apps", "full"]
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      keycloak:
-        condition: service_healthy
-    environment:
-      NODE_ENV: production
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      CATALOG_PORT: 3001
-      # Внутри общей сети обращение идёт по имени сервиса и внутреннему порту,
-      # а не по localhost и опубликованному порту.
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
-      CATALOG_DB: ${CATALOG_DB:-catalog_db}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BROKERS: kafka:9092
-      # Издатель токенов — публичный адрес провайдера (KC_HOSTNAME), ключи
-      # подписи сервис забирает по внутреннему: из контейнера localhost —
-      # это сам контейнер. При запуске сервисов на машине разработчика
-      # внутренний адрес не нужен — оба совпадают.
-      KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
-      AUTH_AUDIENCE: food-delivery-api
     ports:
       - "${CATALOG_PORT:-13001}:3001"
 
+  # Вторая реплика каталога: тот же образ, без опубликованного порта.
+  # Шлюз и order ходят к каталогу через внутренний вход прокси.
+  catalog-2:
+    <<: *catalog
+    container_name: fd-catalog-2
+    pull_policy: never
+
+  # Шлюз — две реплики за прокси (SCAL-2). Порт наружу не публикуется:
+  # шлюз верит адресу клиента из заголовка прокси (TRUST_PROXY_HOPS=1),
+  # и прямой вход в обход прокси позволил бы этот адрес подделать.
   gateway:
+    <<: *gateway
     build:
       context: ../..
       dockerfile: apps/gateway/Dockerfile
-    image: food-delivery/gateway:local
     container_name: fd-gateway
+
+  gateway-2:
+    <<: *gateway
+    container_name: fd-gateway-2
+    pull_policy: never
+
+  # ─────────────────────────────────────────────────────────────
+  # Обратный прокси nginx — единственный вход: клиентское приложение,
+  # GraphQL с подписками и вход /auth на реплики шлюза (порт 13080).
+  # Внутренний порт 8081 распределяет запросы к репликам каталога.
+  # Отказ реплики клиент видит только как переподключение WebSocket.
+  # ─────────────────────────────────────────────────────────────
+  proxy:
+    build:
+      context: ../..
+      dockerfile: infra/nginx/Dockerfile
+    image: food-delivery/proxy:local
+    container_name: fd-proxy
     profiles: ["apps", "full"]
     restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      keycloak:
-        condition: service_healthy
-    environment:
-      NODE_ENV: production
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      GATEWAY_PORT: 3000
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      KAFKA_BROKERS: kafka:9092
-      KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
-      AUTH_AUDIENCE: food-delivery-api
-      AUTH_CLIENT_ID: web
-      AUTH_ADMIN_CLIENT_ID: gateway-admin
-      AUTH_ADMIN_CLIENT_SECRET: ${AUTH_ADMIN_CLIENT_SECRET:-gateway-admin-dev-secret}
-      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:5173}
-      CATALOG_URL: http://catalog:3001
-      ORDER_URL: http://order:3002
-      DELIVERY_URL: http://delivery:3004
     ports:
-      - "${GATEWAY_PORT:-13000}:3000"
+      - "${WEB_PORT:-13080}:8080"
 
   # Сервис заказов: автомат статусов, оркестратор саги, таймеры, корзина.
   # Платежи и доставка до их реализации — заглушки внутри процесса
@@ -282,6 +325,8 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      proxy:
+        condition: service_started
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -297,7 +342,8 @@ services:
       KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
       AUTH_AUDIENCE: food-delivery-api
-      CATALOG_URL: http://catalog:3001
+      # Цены сверяются с каталогом через внутренний вход прокси — на обе реплики
+      CATALOG_URL: http://proxy:8081
       PAYMENT_MODE: ${PAYMENT_MODE:-http}
       PAYMENT_URL: http://payment:3003
       PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:-payment-internal-dev-token}

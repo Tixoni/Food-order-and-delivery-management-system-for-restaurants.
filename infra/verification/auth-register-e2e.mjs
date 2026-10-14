@@ -14,11 +14,11 @@
  *   5. после перехода по ссылке вход проходит, роль — client;
  *   6. повторная отправка письма для подтверждённого адреса ничего не шлёт.
  *
- * Адреса: GATEWAY_URL (по умолчанию http://localhost:13000),
+ * Адреса: GATEWAY_URL (по умолчанию http://localhost:13080 — прокси),
  *         MAILPIT_URL (по умолчанию http://localhost:18025).
  */
 
-const GATEWAY = process.env.GATEWAY_URL ?? "http://localhost:13000";
+const GATEWAY = process.env.GATEWAY_URL ?? "http://localhost:13080";
 const MAILPIT = process.env.MAILPIT_URL ?? "http://localhost:18025";
 
 const email = `e2e-${Date.now()}@example.com`;

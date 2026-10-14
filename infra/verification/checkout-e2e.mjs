@@ -2,7 +2,7 @@
  * Сквозная проверка оформления заказа через шлюз GraphQL — так, как это
  * делает витрина: gateway + catalog + order + payment + Keycloak.
  *
- *   GATEWAY_URL=http://localhost:13000 node infra/verification/checkout-e2e.mjs
+ *   GATEWAY_URL=http://localhost:13080 node infra/verification/checkout-e2e.mjs
  *
  * Вход — учебной учётной записью клиента из файла области Keycloak
  * (CLIENT_LOGIN / CLIENT_PASSWORD, по умолчанию client@food.local).
@@ -19,7 +19,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-const gateway = new URL(process.env.GATEWAY_URL ?? "http://localhost:13000");
+const gateway = new URL(process.env.GATEWAY_URL ?? "http://localhost:13080");
 if (gateway.hostname !== "localhost") {
   throw new Error("проверка с учебными учётными данными допускается только на localhost");
 }
