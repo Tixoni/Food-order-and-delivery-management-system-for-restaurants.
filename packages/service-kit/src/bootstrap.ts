@@ -1,3 +1,4 @@
+import type { Server } from "node:http";
 import { NestFactory } from "@nestjs/core";
 import { createLogger, isAppError, type LogLevel } from "@food-delivery/shared";
 
@@ -6,6 +7,15 @@ export interface BootstrapOptions {
   port: number;
   logLevel?: LogLevel;
   nodeEnv?: string;
+  /**
+   * Сколько обратных прокси стоит перед сервисом. Адрес клиента (`req.ip`)
+   * берётся из `X-Forwarded-For` ровно на столько звеньев справа — то, что
+   * дописали наши прокси. Левее — то, что прислал сам клиент, и верить этому
+   * нельзя. 0 — прокси нет, адрес — само соединение.
+   */
+  trustProxyHops?: number;
+  /** Сколько ждать завершения начатых запросов при остановке. */
+  drainTimeoutMs?: number;
 }
 
 /**
@@ -26,8 +36,48 @@ export async function bootstrapService(
 
   try {
     const app = await NestFactory.create(appModule as never, { logger: false });
-    app.enableShutdownHooks();
+    if (options.trustProxyHops) {
+      app.getHttpAdapter().getInstance().set("trust proxy", options.trustProxyHops);
+    }
     await app.listen(options.port, "0.0.0.0");
+
+    // Начатые HTTP-запросы; подписки WebSocket сюда не входят — их
+    // закрывает модуль GraphQL при остановке, и клиент переподключается.
+    const server = app.getHttpServer() as Server;
+    let active = 0;
+    server.on("request", (_request, response) => {
+      active += 1;
+      response.on("close", () => (active -= 1));
+    });
+
+    /**
+     * Штатная остановка за балансировщиком (SCAL-2).
+     *
+     * Порядок важен. Сначала сервис перестаёт принимать соединения и
+     * закрывает простаивающие: прокси сразу получает отказ в соединении и
+     * отправляет запрос на другую реплику. Начатые запросы дорабатывают —
+     * база, Redis и брокер ещё подключены. Только потом гасятся модули.
+     * Стандартный порядок Nest обратный (модули, последним — HTTP-сервер):
+     * всё время остановки реплика принимала запросы, которые уже не могла
+     * выполнить, — найдено проверкой двух реплик за прокси.
+     */
+    const stop = async (signal: NodeJS.Signals) => {
+      logger.info("остановка: новые соединения не принимаются", { signal, active });
+      server.close();
+      server.closeIdleConnections();
+      const deadline = Date.now() + (options.drainTimeoutMs ?? 5000);
+      while (active > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (active > 0) logger.warn("остановка: запросы не успели завершиться", { active });
+      await app.close();
+      logger.info("сервис остановлен", { signal });
+      // Обработчик уже снят (once): повторный сигнал завершит процесс, даже
+      // если какой-то клиент оставил открытый дескриптор. Как в Nest.
+      setTimeout(() => process.kill(process.pid, signal), 100).unref();
+    };
+    process.once("SIGTERM", () => void stop("SIGTERM"));
+    process.once("SIGINT", () => void stop("SIGINT"));
 
     logger.info("сервис запущен", {
       port: options.port,

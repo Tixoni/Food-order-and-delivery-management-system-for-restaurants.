@@ -22,4 +22,19 @@ describe("Gateway configuration", () => {
     process.env.AUTH_DISABLED = "true";
     expect(loadConfig().auth.disabled).toBe(true);
   });
+
+  it("без TRUST_PROXY_HOPS заголовкам прокси не верит; число звеньев проверяется", () => {
+    const original = process.env.TRUST_PROXY_HOPS;
+    try {
+      delete process.env.TRUST_PROXY_HOPS;
+      expect(loadConfig().trustProxyHops).toBe(0);
+      process.env.TRUST_PROXY_HOPS = "1";
+      expect(loadConfig().trustProxyHops).toBe(1);
+      process.env.TRUST_PROXY_HOPS = "-1";
+      expect(() => loadConfig()).toThrow("TRUST_PROXY_HOPS");
+    } finally {
+      if (original === undefined) delete process.env.TRUST_PROXY_HOPS;
+      else process.env.TRUST_PROXY_HOPS = original;
+    }
+  });
 });

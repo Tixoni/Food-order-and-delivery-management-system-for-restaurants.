@@ -179,12 +179,16 @@ export class AuthController {
  * заголовком; первым в списке стоит адрес клиента, остальные добавляют
  * промежуточные узлы.
  */
+/**
+ * Адрес клиента для ограничения частоты (SEC-5).
+ *
+ * Только `request.ip`: Express вычисляет его из `X-Forwarded-For` с учётом
+ * числа наших прокси (TRUST_PROXY_HOPS). Брать первое значение заголовка
+ * нельзя — его пишет сам клиент, и подстановкой случайного адреса в каждый
+ * запрос ограничение обходилось целиком.
+ */
 function addressOf(request: Request): string {
-  const forwarded = request.headers["x-forwarded-for"];
-  const header = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const fromHeader = header?.split(",")[0]?.trim();
-
-  return fromHeader || request.ip || request.socket?.remoteAddress || "unknown";
+  return request.ip || request.socket?.remoteAddress || "unknown";
 }
 
 /** Разбор куки из заголовка: ради одного значения подключать разборщик незачем. */

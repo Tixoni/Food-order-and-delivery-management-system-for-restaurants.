@@ -7,6 +7,12 @@
  */
 export interface ServiceConfig {
   port: number;
+  /**
+   * Сколько обратных прокси перед шлюзом (nginx в окружении — 1). Нужно
+   * ограничению частоты входа (SEC-5): адрес клиента берётся из той части
+   * `X-Forwarded-For`, которую дописали наши прокси.
+   */
+  trustProxyHops: number;
   nodeEnv: string;
   logLevel: "debug" | "info" | "warn" | "error";
   redis: {
@@ -74,6 +80,16 @@ function required(name: string, fallback?: string): string {
   return value;
 }
 
+/** Число прокси: пусто или 0 — прокси нет. */
+function proxyHops(raw: string | undefined): number {
+  if (raw === undefined || raw === "") return 0;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 5) {
+    throw new Error("переменная окружения TRUST_PROXY_HOPS должна быть целым числом от 0 до 5");
+  }
+  return value;
+}
+
 function numeric(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
@@ -96,6 +112,7 @@ export function loadConfig(): ServiceConfig {
 
   return {
     port: numeric("GATEWAY_PORT", 3000),
+    trustProxyHops: proxyHops(process.env.TRUST_PROXY_HOPS),
     nodeEnv,
     logLevel: level as ServiceConfig["logLevel"],
     redis: {

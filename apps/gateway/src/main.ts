@@ -10,4 +10,5 @@ void bootstrapService(AppModule, {
   port: config.port,
   logLevel: config.logLevel,
   nodeEnv: config.nodeEnv,
+  trustProxyHops: config.trustProxyHops,
 });
