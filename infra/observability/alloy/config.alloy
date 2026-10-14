@@ -45,6 +45,7 @@ loki.source.docker "project" {
 // Записи сервисов — JSON. Уровень — метка: значений четыре, по ней удобно
 // отбирать ошибки. Сквозной идентификатор — структурированные метаданные,
 // а не метка: значений у него миллионы, и как метка он раздул бы индекс.
+// Так же — номер трассы: из трассы в Jaeger можно перейти к её журналам.
 // Строки не в JSON (nginx, Kafka, Keycloak) проходят как есть.
 loki.process "json" {
   forward_to = [loki.write.local.receiver]
@@ -53,6 +54,7 @@ loki.process "json" {
     expressions = {
       level          = "level",
       correlation_id = "correlationId",
+      trace_id       = "traceId",
     }
   }
 
@@ -61,7 +63,10 @@ loki.process "json" {
   }
 
   stage.structured_metadata {
-    values = { correlation_id = "" }
+    values = {
+      correlation_id = "",
+      trace_id       = "",
+    }
   }
 }
 

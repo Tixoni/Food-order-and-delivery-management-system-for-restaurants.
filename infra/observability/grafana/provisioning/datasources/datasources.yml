@@ -11,3 +11,23 @@ datasources:
     isDefault: true
     jsonData:
       maxLines: 1000
+      # Из записи журнала — к трассе: поле traceId становится ссылкой в Jaeger
+      derivedFields:
+        - name: traceId
+          matcherRegex: '"traceId":"([0-9a-f]{32})"'
+          url: "$${__value.raw}"
+          datasourceUid: jaeger
+          urlDisplayLabel: Открыть трассу
+
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    jsonData:
+      # Из трассы — к журналам: все записи этой трассы во всех сервисах
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: false
+        customQuery: true
+        query: '{service=~".+"} | trace_id="$${__span.traceId}"'

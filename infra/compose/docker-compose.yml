@@ -7,7 +7,7 @@ name: food-delivery
 #   auth  — плюс провайдер идентификации
 #   apps  — инфраструктура плюс сами сервисы в контейнерах
 #   geo   — маршрутизатор OSRM (карту готовит npm run osrm:prepare)
-#   observability — журналы всех контейнеров в одном месте: Loki, Alloy, Grafana
+#   observability — журналы (Loki, Alloy) и трассы (Jaeger), интерфейс Grafana
 #   full  — всё сразу: демонстрация и нагрузочное тестирование
 #
 # Запуск:  npm run env:up          (профиль core)
@@ -60,6 +60,8 @@ x-catalog: &catalog
     KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
     KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
     AUTH_AUDIENCE: food-delivery-api
+    # Трассы (OBS-2) — в Jaeger профиля observability; без него просто не уходят
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
 
 x-gateway: &gateway
   image: food-delivery/gateway:local
@@ -85,6 +87,8 @@ x-gateway: &gateway
     KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
     KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
     AUTH_AUDIENCE: food-delivery-api
+    # Трассы (OBS-2) — в Jaeger профиля observability; без него просто не уходят
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
     AUTH_CLIENT_ID: web
     AUTH_ADMIN_CLIENT_ID: gateway-admin
     AUTH_ADMIN_CLIENT_SECRET: ${AUTH_ADMIN_CLIENT_SECRET:-gateway-admin-dev-secret}
@@ -341,6 +345,8 @@ services:
       KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
       AUTH_AUDIENCE: food-delivery-api
+      # Трассы (OBS-2) — в Jaeger профиля observability; без него просто не уходят
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       # Цены сверяются с каталогом через внутренний вход прокси — на обе реплики
       CATALOG_URL: http://proxy:8081
       PAYMENT_MODE: ${PAYMENT_MODE:-http}
@@ -372,6 +378,7 @@ services:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PAYMENT_PORT: 3003
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:-app}
@@ -403,6 +410,7 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       EMULATOR_PORT: 3010
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       PROVIDER_SHOP_ID: ${PROVIDER_SHOP_ID:-food-delivery-shop}
       PROVIDER_SECRET_KEY: ${PROVIDER_SECRET_KEY:-test_provider_dev_secret}
     ports:
@@ -451,6 +459,8 @@ services:
       KEYCLOAK_ISSUER: http://localhost:${KEYCLOAK_PORT:-18080}/realms/food-delivery
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080/realms/food-delivery
       AUTH_AUDIENCE: food-delivery-api
+      # Трассы (OBS-2) — в Jaeger профиля observability; без него просто не уходят
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       DELIVERY_INTERNAL_TOKEN: ${DELIVERY_INTERNAL_TOKEN:-delivery-internal-dev-token}
       ALLOW_DEV_SECRETS: ${ALLOW_DEV_SECRETS:-true}
       # Сроки подбора: радиус 3 км (DLV-3) и 90 с на ответ курьера (DLV-4)
@@ -530,6 +540,17 @@ services:
       - "${GRAFANA_PORT:-13030}:3000"
     depends_on:
       - loki
+
+  # Трассировка (OBS-2): сервисы шлют участки трасс по OTLP (4318), интерфейс —
+  # http://localhost:13686. Хранение в памяти — для демонстрации и отладки;
+  # перезапуск очищает трассы.
+  jaeger:
+    image: jaegertracing/jaeger:2.11.0
+    container_name: fd-jaeger
+    profiles: ["observability", "full"]
+    restart: unless-stopped
+    ports:
+      - "${JAEGER_PORT:-13686}:16686"
 
 volumes:
   postgres-data:
