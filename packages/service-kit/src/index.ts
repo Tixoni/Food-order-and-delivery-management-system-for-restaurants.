@@ -11,6 +11,7 @@ export * from "./kit.controllers";
 export * from "./metrics.service";
 export * from "./readiness";
 export * from "./request-log.middleware";
+export * from "./trace-context";
 export * from "./resilient-redis.client";
 export * from "./service-kit.module";
 export * from "./resilience/circuit-breaker";

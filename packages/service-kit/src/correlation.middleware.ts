@@ -1,7 +1,9 @@
 import { Injectable, type NestMiddleware } from "@nestjs/common";
 import { newCorrelationId, runWithContext } from "@food-delivery/shared";
+import { activeTraceId } from "./trace-context";
 
 export const CORRELATION_HEADER = "x-correlation-id";
+export const TRACE_HEADER = "x-trace-id";
 
 interface MinimalRequest {
   headers: Record<string, string | string[] | undefined>;
@@ -26,6 +28,9 @@ export class CorrelationMiddleware implements NestMiddleware {
       typeof incoming === "string" && incoming.trim() !== "" ? incoming : newCorrelationId();
 
     res.setHeader(CORRELATION_HEADER, correlationId);
+    // Номер трассы — в ответе: по нему обращение находится в Jaeger (OBS-2)
+    const traceId = activeTraceId();
+    if (traceId) res.setHeader(TRACE_HEADER, traceId);
     runWithContext({ correlationId, source: "http" }, () => next());
   }
 }

@@ -1,3 +1,4 @@
+import "./tracing";
 import "reflect-metadata";
 import { bootstrapService } from "@food-delivery/service-kit";
 import { AppModule } from "./app.module";

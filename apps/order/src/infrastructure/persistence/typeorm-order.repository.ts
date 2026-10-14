@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { traceHeaders } from "@food-delivery/service-kit";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource, type EntityManager } from "typeorm";
 import type { DomainEvent } from "@food-delivery/shared";
@@ -256,11 +257,14 @@ export class TypeOrmOrderRepository implements OrderRepository, SagaQueue {
     }
     for (const entry of change.schedule ?? []) {
       await manager.query(
-        `INSERT INTO saga_timers (saga_id, order_id, timer_type, fire_at)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO saga_timers (saga_id, order_id, timer_type, fire_at, trace_context)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (order_id, timer_type) WHERE fired_at IS NULL
-         DO UPDATE SET fire_at = EXCLUDED.fire_at, attempts = 0, last_error = NULL`,
-        [sagaId, orderId, entry.type, entry.fireAt],
+         DO UPDATE SET fire_at = EXCLUDED.fire_at, attempts = 0, last_error = NULL,
+                       trace_context = EXCLUDED.trace_context`,
+        // Контекст трассы, в которой шаг поставлен: фоновый исполнитель
+        // продолжит её, а не начнёт новую (OBS-2)
+        [sagaId, orderId, entry.type, entry.fireAt, JSON.stringify(traceHeaders())],
       );
     }
 
@@ -290,7 +294,7 @@ export class TypeOrmOrderRepository implements OrderRepository, SagaQueue {
                 LIMIT $1
                 FOR UPDATE SKIP LOCKED) due
         WHERE t.id = due.id
-        RETURNING t.id, t.order_id, t.saga_id, t.timer_type, t.attempts`,
+        RETURNING t.id, t.order_id, t.saga_id, t.timer_type, t.attempts, t.trace_context`,
       [limit, leaseMs, now],
     )) as unknown;
     // Для UPDATE ... RETURNING драйвер возвращает пару [строки, число строк].
@@ -300,6 +304,7 @@ export class TypeOrmOrderRepository implements OrderRepository, SagaQueue {
       saga_id: string;
       timer_type: string;
       attempts: number;
+      trace_context: Record<string, string> | null;
     }>;
     return list.map((row) => ({
       id: String(row.id),
@@ -307,6 +312,7 @@ export class TypeOrmOrderRepository implements OrderRepository, SagaQueue {
       sagaId: row.saga_id,
       type: row.timer_type,
       attempt: Number(row.attempts),
+      traceContext: row.trace_context,
     }));
   }
 
@@ -383,6 +389,8 @@ async function writeOutbox(manager: EntityManager, events: readonly DomainEvent[
           partitionKey: event.aggregateId,
           correlationId: event.correlationId,
           ...(event.causationId ? { causationId: event.causationId } : {}),
+          // Контекст трассы — отправка из outbox продолжит эту трассу (OBS-2)
+          ...traceHeaders(),
         }),
       ],
     );

@@ -1,5 +1,6 @@
 import { Kafka, type Producer } from "kafkajs";
 import type { Logger } from "@food-delivery/shared";
+import { SpanKind, startStoredSpan } from "../trace-context";
 import { ensureTopics, errorText } from "./kafka-topics";
 
 /** Выполнение SQL. Каркас не знает про ORM сервиса: ему достаточно запроса. */
@@ -123,19 +124,38 @@ export class OutboxRelay {
       if (rows.length === 0) return { published: 0 };
       const ids = rows.map((row) => row.id);
 
+      // Трасса (OBS-2): событие записано в запросе, а уходит сейчас, в фоне,
+      // пачкой из разных трасс. У каждого сообщения — свой участок отправки,
+      // продолжающий трассу из его строки outbox; его traceparent уходит
+      // в заголовках сообщения, и потребитель продолжит ту же трассу.
+      const spans = rows.map((row) =>
+        startStoredSpan({
+          carrier: row.headers,
+          name: `${this.options.topic} publish`,
+          kind: SpanKind.PRODUCER,
+          attributes: {
+            "messaging.system": "kafka",
+            "messaging.destination.name": this.options.topic,
+            "messaging.operation.type": "send",
+            "event.type": row.event_type,
+          },
+        }),
+      );
       try {
         const producer = await this.connect();
         await producer.send({
           topic: this.options.topic,
-          messages: rows.map((row) => ({
+          messages: rows.map((row, index) => ({
             // Ключ партиции задаёт порядок обработки: все события одного
             // агрегата попадают в одну партицию и читаются по порядку.
             key: row.headers?.partitionKey ?? row.aggregate_id,
             value: JSON.stringify(row.payload),
-            headers: row.headers ?? {},
+            headers: { ...(row.headers ?? {}), ...spans[index].headers },
           })),
         });
+        for (const span of spans) span.end();
       } catch (error) {
+        for (const span of spans) span.end(error);
         // Число попыток и последняя ошибка остаются в таблице: по ним видно,
         // какие события застряли и почему, без чтения журналов. Ошибка
         // возвращается, а не бросается: иначе откатилась бы и эта запись.

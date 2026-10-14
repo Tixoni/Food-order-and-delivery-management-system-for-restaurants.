@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { traceHeaders } from "@food-delivery/service-kit";
 import { InjectDataSource } from "@nestjs/typeorm";
 import type { DataSource, EntityManager } from "typeorm";
 import type { DomainEvent } from "@food-delivery/shared";
@@ -466,6 +467,8 @@ export class SqlDeliveryTx implements DeliveryTx {
             partitionKey: orderId,
             correlationId: event.correlationId,
             ...(event.causationId ? { causationId: event.causationId } : {}),
+            // Контекст трассы — отправка из outbox продолжит эту трассу (OBS-2)
+            ...traceHeaders(),
           }),
         ],
       );

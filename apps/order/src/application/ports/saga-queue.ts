@@ -8,6 +8,8 @@ export interface ClaimedEntry {
   type: string;
   /** Номер попытки, включая текущую. */
   attempt: number;
+  /** Контекст трассы, в которой шаг поставлен (OBS-2); нет — шаг начнёт новую. */
+  traceContext?: Record<string, string> | null;
 }
 
 /**

@@ -12,5 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "jest",
     "test:cov": "jest --coverage"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0"
   }
 }

@@ -1,3 +1,4 @@
+import { isSpanContextValid, trace } from "@opentelemetry/api";
 import { getContext } from "./context";
 
 /**
@@ -124,6 +125,10 @@ export class Logger {
     if (LEVEL_ORDER[level] < this.minLevel) return;
 
     const context = getContext();
+    // Номер трассы (OBS-2): из записи журнала — переход к трассе в Jaeger.
+    // Без включённой трассировки участка нет, и поле не пишется.
+    const span = trace.getActiveSpan()?.spanContext();
+    const traceId = span && isSpanContextValid(span) ? span.traceId : undefined;
     const record: LogRecord = {
       timestamp: new Date().toISOString(),
       level,
@@ -131,6 +136,7 @@ export class Logger {
       message,
       ...(context?.correlationId ? { correlationId: context.correlationId } : {}),
       ...(context?.userId ? { userId: context.userId } : {}),
+      ...(traceId ? { traceId } : {}),
       ...(maskSensitive(this.bindings) as Record<string, unknown>),
       ...(fields ? (maskSensitive(fields) as Record<string, unknown>) : {}),
     };

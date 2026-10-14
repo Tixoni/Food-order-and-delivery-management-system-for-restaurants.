@@ -1,3 +1,4 @@
+import "./tracing";
 import { createLogger } from "@food-delivery/shared";
 import { DEFAULT_SETTINGS, ProviderEmulator, type EmulatorSettings } from "./emulator";
 import { startEmulatorServer } from "./server";

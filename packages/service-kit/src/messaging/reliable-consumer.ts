@@ -8,12 +8,15 @@ import {
   type Logger,
 } from "@food-delivery/shared";
 import { retry } from "../resilience/retry";
+import { SpanKind, continueTrace } from "../trace-context";
 import { ensureTopics, errorText } from "./kafka-topics";
 
 export interface MessageMeta {
   topic: string;
   partition: number;
   offset: string;
+  /** Заголовки сообщения — среди них контекст трассы отправителя. */
+  headers?: Record<string, unknown>;
 }
 
 export interface ReliableConsumerOptions {
@@ -108,6 +111,29 @@ export class ReliableConsumer {
    * Открыт для тестов: проверять логику повторов через живой брокер незачем.
    */
   async process(raw: string | undefined, meta: MessageMeta): Promise<HandlingOutcome> {
+    // Обработка — продолжение трассы отправителя (OBS-2): участок
+    // потребителя дочерний к участку отправки, всё, что делает обработчик, —
+    // дочернее к нему.
+    return continueTrace(
+      {
+        carrier: meta.headers,
+        name: `${meta.topic} process`,
+        kind: SpanKind.CONSUMER,
+        attributes: {
+          "messaging.system": "kafka",
+          "messaging.destination.name": meta.topic,
+          "messaging.operation.type": "process",
+          "messaging.consumer.group.name": this.options.groupId,
+        },
+      },
+      () => this.handleMessage(raw, meta),
+    );
+  }
+
+  private async handleMessage(
+    raw: string | undefined,
+    meta: MessageMeta,
+  ): Promise<HandlingOutcome> {
     let event: DomainEvent;
     try {
       event = parseEvent(JSON.parse(raw ?? ""));
@@ -170,6 +196,7 @@ export class ReliableConsumer {
             topic,
             partition,
             offset: message.offset,
+            headers: message.headers as Record<string, unknown> | undefined,
           });
         },
       });

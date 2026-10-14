@@ -1,4 +1,5 @@
 import type { EntityManager } from "typeorm";
+import { traceHeaders } from "@food-delivery/service-kit";
 import type { DomainEvent } from "@food-delivery/shared";
 import { OutboxMessageOrmEntity } from "./outbox.orm-entity";
 
@@ -43,5 +44,7 @@ function partitionHeaders(event: DomainEvent): Record<string, string> {
     partitionKey: payload?.restaurantId ?? event.aggregateId,
     correlationId: event.correlationId,
     ...(event.causationId ? { causationId: event.causationId } : {}),
+    // Контекст трассы — отправка из outbox продолжит эту трассу (OBS-2)
+    ...traceHeaders(),
   };
 }

@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { Counter } from "prom-client";
 import { createLogger, type Logger } from "@food-delivery/shared";
-import { MetricsService } from "@food-delivery/service-kit";
+import { MetricsService, continueTrace } from "@food-delivery/service-kit";
 import { SagaRunner } from "../../application/saga/saga-runner";
 import { SAGA_QUEUE, type SagaQueue } from "../../application/ports/saga-queue";
 import { ORDER_CONFIG, type OrderConfig } from "../../config/configuration";
@@ -72,13 +72,27 @@ export class SagaScheduler implements OnApplicationBootstrap, OnApplicationShutd
           // Шаг саги — значимое событие (холд, списание, курьер, компенсации),
           // их несколько на заказ: в журнал на уровне info, с идентификатором
           // оформления — шаги видны в «Журнале действия» рядом с запросами.
-          const outcome = await this.runner.run(entry, new Date(), (result) =>
-            this.logger.info("шаг саги выполнен", {
-              orderId: entry.orderId,
-              type: entry.type,
-              outcome: result,
-              attempt: entry.attempt,
-            }),
+          // Шаг — продолжение трассы, в которой его поставили (OBS-2):
+          // холд — в трассе оформления, снятие холда — в трассе отмены.
+          const outcome = await continueTrace(
+            {
+              carrier: entry.traceContext,
+              name: `saga ${entry.type}`,
+              attributes: {
+                "order.id": entry.orderId,
+                "saga.step": entry.type,
+                "saga.attempt": entry.attempt,
+              },
+            },
+            () =>
+              this.runner.run(entry, new Date(), (result) =>
+                this.logger.info("шаг саги выполнен", {
+                  orderId: entry.orderId,
+                  type: entry.type,
+                  outcome: result,
+                  attempt: entry.attempt,
+                }),
+              ),
           );
           this.steps.inc({ step, outcome });
         } catch (error) {

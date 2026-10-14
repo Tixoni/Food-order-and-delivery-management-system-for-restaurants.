@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import { NestFactory } from "@nestjs/core";
 import { createLogger, isAppError, type LogLevel } from "@food-delivery/shared";
+import { shutdownTracing } from "./tracing";
 
 export interface BootstrapOptions {
   serviceName: string;
@@ -71,6 +72,7 @@ export async function bootstrapService(
       }
       if (active > 0) logger.warn("остановка: запросы не успели завершиться", { active });
       await app.close();
+      await shutdownTracing();
       logger.info("сервис остановлен", { signal });
       // Обработчик уже снят (once): повторный сигнал завершит процесс, даже
       // если какой-то клиент оставил открытый дескриптор. Как в Nest.
