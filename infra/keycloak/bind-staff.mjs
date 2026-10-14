@@ -8,8 +8,14 @@
  * наполнении они новые.
  *
  * Поэтому после `npm run db:seed` запускается этот сценарий: он находит
- * первый действующий ресторан и записывает его идентификатор в учётные
- * записи менеджера и кухни.
+ * действующий ресторан и записывает его идентификатор в учётные записи
+ * менеджера и кухни.
+ *
+ * Ресторан выбирается из тех, что доставляют на адрес-образец витрины
+ * «Тверская, центр», а учебный курьер ставится в 300 м от него: так ручная
+ * проверка «клиент → кухня → курьер» сходится без подготовки — клиент
+ * находит ресторан кухни по образцу адреса, а курьер оказывается в радиусе
+ * подбора (3 км). Курьеры сида стоят в случайных точках города.
  *
  * Запуск: npm run auth:bind
  */
@@ -22,6 +28,9 @@ const ADMIN_PASSWORD = process.env.KEYCLOAK_ADMIN_PASSWORD ?? "admin";
 
 /** Кого привязываем. Курьер, оператор и администратор к ресторану не относятся. */
 const STAFF = ["manager@food.local", "kitchen@food.local"];
+
+/** Адрес-образец «Тверская, центр» на витрине (apps/web, StorefrontPage). */
+const SAMPLE_ADDRESS = { label: "Тверская, центр", latitude: 55.7615, longitude: 37.6094 };
 
 const db = {
   host: process.env.POSTGRES_HOST ?? "localhost",
@@ -56,7 +65,18 @@ async function findRestaurant() {
 
   try {
     const { rows } = await client.query(
-      `SELECT id, name FROM restaurants WHERE is_active ORDER BY name LIMIT 1`,
+      `SELECT r.id, r.name,
+              ST_Y(r.location::geometry) AS lat, ST_X(r.location::geometry) AS lon,
+              EXISTS (
+                SELECT 1 FROM delivery_zones z
+                 WHERE z.restaurant_id = r.id AND z.is_active
+                   AND ST_Covers(z.area, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography)
+              ) AS delivers_to_sample
+         FROM restaurants r
+        WHERE r.is_active
+        ORDER BY delivers_to_sample DESC, r.name
+        LIMIT 1`,
+      [SAMPLE_ADDRESS.latitude, SAMPLE_ADDRESS.longitude],
     );
     if (rows.length === 0) {
       throw new Error("в базе нет ни одного действующего ресторана: сначала npm run db:seed");
@@ -101,7 +121,7 @@ async function bind(token, email, restaurantId) {
  * Курьер из файла области привязывается к курьеру в базе доставки: курьер
  * действует от своей учётной записи, и без привязки на смену не выйти.
  */
-async function bindCourier(token) {
+async function bindCourier(token, restaurant) {
   const search = await fetch(
     `${KEYCLOAK}/admin/realms/${REALM}/users?email=${encodeURIComponent(COURIER)}&exact=true`,
     { headers: { Authorization: `Bearer ${token}` } },
@@ -117,11 +137,16 @@ async function bindCourier(token) {
   try {
     // Учётная запись может быть уже привязана к другому курьеру — отвязываем.
     await client.query(`UPDATE couriers SET user_id = NULL WHERE user_id = $1`, [user.id]);
+    // Курьер — в 300 м к югу от ресторана кухни: в радиусе подбора. Имитация
+    // движения в приложении курьера начнёт с этой точки.
     const { rows } = await client.query(
-      `UPDATE couriers SET user_id = $1, status = 'offline', current_delivery_id = NULL
+      `UPDATE couriers
+          SET user_id = $1, status = 'offline', current_delivery_id = NULL,
+              last_location = ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+              last_location_at = now()
         WHERE id = (SELECT id FROM couriers WHERE is_active ORDER BY full_name LIMIT 1)
         RETURNING full_name`,
-      [user.id],
+      [user.id, Number(restaurant.lat) - 300 / 111_195, Number(restaurant.lon)],
     );
     if (rows.length === 0) {
       console.log("  в базе доставки нет курьеров: сначала npm run db:seed");
@@ -142,7 +167,12 @@ const token = await adminToken();
 for (const email of STAFF) {
   await bind(token, email, restaurant.id);
 }
-await bindCourier(token);
+await bindCourier(token, restaurant);
 
 console.log("\nГотово. Токен сотрудника теперь содержит поле restaurantId,");
 console.log("и сервис проверяет по нему владение рестораном (SEC-2).");
+console.log(
+  restaurant.delivers_to_sample
+    ? `Для проверки: клиенту на витрине — адрес «${SAMPLE_ADDRESS.label}», ресторан «${restaurant.name}».`
+    : `Для проверки: ресторан «${restaurant.name}» не доставляет на «${SAMPLE_ADDRESS.label}» — выберите адрес рядом с ним.`,
+);
