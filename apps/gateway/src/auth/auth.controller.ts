@@ -91,12 +91,11 @@ export class AuthController {
       throw new ValidationError("нужны имя пользователя и пароль");
     }
 
-    const clientIp = addressOf(request);
-    await this.rateLimiter.check(clientIp);
+    // Успешный вход счётчик не сбрасывает: иначе входом в свою учётную запись
+    // можно было бы обнулять предел и подбирать чужие пароли без ограничения.
+    await this.rateLimiter.check(addressOf(request));
 
     const tokens = await this.keycloak.login(username, password);
-    await this.rateLimiter.reset(clientIp);
-
     return this.respondWithTokens(tokens, response);
   }
 
@@ -175,11 +174,6 @@ export class AuthController {
 }
 
 /**
- * Адрес обратившегося. За обратным прокси настоящий адрес приходит
- * заголовком; первым в списке стоит адрес клиента, остальные добавляют
- * промежуточные узлы.
- */
-/**
  * Адрес клиента для ограничения частоты (SEC-5).
  *
  * Только `request.ip`: Express вычисляет его из `X-Forwarded-For` с учётом
@@ -198,7 +192,13 @@ function cookieValue(request: Request, name: string): string | null {
 
   for (const part of header.split(";")) {
     const [key, ...rest] = part.trim().split("=");
-    if (key === name) return decodeURIComponent(rest.join("="));
+    if (key !== name) continue;
+    try {
+      return decodeURIComponent(rest.join("="));
+    } catch {
+      // Испорченная кука — то же, что её отсутствие: «войдите заново», а не сбой шлюза.
+      return null;
+    }
   }
 
   return null;

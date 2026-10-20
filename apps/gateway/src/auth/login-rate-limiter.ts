@@ -94,11 +94,6 @@ export class LoginRateLimiter implements OnApplicationShutdown {
     }
   }
 
-  /** Сбрасывает счётчик после успешного входа: владелец не должен страдать. */
-  async reset(clientIp: string): Promise<void> {
-    await this.redis.readyClient?.del(`auth:login:${clientIp}`).catch(() => undefined);
-  }
-
   private async secondsLeft(key: string): Promise<number> {
     const ttl = await this.redis.readyClient?.ttl(key).catch(() => WINDOW_SECONDS);
     if (ttl === undefined) return WINDOW_SECONDS;

@@ -18,8 +18,6 @@ export interface ServiceConfig {
   redis: {
     host: string;
     port: number;
-    /** Срок жизни кэша выдачи каталога. Сбрасывается событиями каталога. */
-    cacheTtlSeconds: number;
   };
   auth: {
     /** Публичный адрес области провайдера входа — издатель токенов (`iss`). */
@@ -118,7 +116,6 @@ export function loadConfig(): ServiceConfig {
     redis: {
       host: required("REDIS_HOST", "localhost"),
       port: numeric("REDIS_PORT", 16379),
-      cacheTtlSeconds: numeric("GATEWAY_CACHE_TTL_SECONDS", 2),
     },
     auth: {
       issuer: required("KEYCLOAK_ISSUER", "http://localhost:18080/realms/food-delivery"),

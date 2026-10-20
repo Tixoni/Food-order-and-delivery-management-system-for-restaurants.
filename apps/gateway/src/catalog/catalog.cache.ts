@@ -15,19 +15,19 @@ import { GATEWAY_CONFIG, type GatewayConfig } from "../config/configuration";
  * срок жизни обеих ступеней ограничивает устаревание при потере события;
  * измерение CAT-4 под нагрузкой всё равно остаётся обязательным.
  */
+
+// Страховка при потере события сброса: устаревание не дольше двух секунд (CAT-4).
+const TTL_SECONDS = 2;
+
 @Injectable()
 export class CatalogCache implements OnApplicationShutdown {
   private readonly redis: ResilientRedisClient;
   private readonly logger: Logger;
-  private readonly ttlSeconds: number;
 
   constructor(
     @Inject(GATEWAY_CONFIG) config: GatewayConfig,
     private readonly metrics: MetricsService,
   ) {
-    // Ограничение важно для CAT-4 и служит страховкой при потере
-    // события, которое сбрасывает общие списки.
-    this.ttlSeconds = Math.min(config.redis.cacheTtlSeconds, 2);
     this.logger = createLogger({ service: "gateway", level: config.logLevel }).child({
       component: "catalog-cache",
     });
@@ -128,7 +128,7 @@ export class CatalogCache implements OnApplicationShutdown {
     const client = this.redis.readyClient;
     if (!client) return;
     try {
-      const pipeline = client.multi().set(key, JSON.stringify(value), "EX", this.ttlSeconds);
+      const pipeline = client.multi().set(key, JSON.stringify(value), "EX", TTL_SECONDS);
 
       // Ключ, относящийся к ресторану, запоминается в его множестве —
       // чтобы потом сбросить всё разом по событию.
@@ -139,11 +139,11 @@ export class CatalogCache implements OnApplicationShutdown {
           .sadd(this.setKey(restaurantId), key)
           // Множество живёт дольше записей: иначе оно исчезнет раньше них
           // и сбрасывать будет нечего.
-          .expire(this.setKey(restaurantId), this.ttlSeconds * 2);
+          .expire(this.setKey(restaurantId), TTL_SECONDS * 2);
       } else if (key.startsWith("gateway:restaurants:") || key.startsWith("gateway:nearby:")) {
         pipeline
           .sadd("gateway:listings:keys", key)
-          .expire("gateway:listings:keys", this.ttlSeconds * 2);
+          .expire("gateway:listings:keys", TTL_SECONDS * 2);
       }
 
       await pipeline.exec();
