@@ -40,17 +40,3 @@ export function getContext(): RequestContext | undefined {
 export function getCorrelationId(): string {
   return storage.getStore()?.correlationId ?? newCorrelationId();
 }
-
-/** Добавляет поля к текущему контексту, не теряя уже имеющиеся. */
-export function extendContext<T>(patch: Partial<RequestContext>, fn: () => T): T {
-  const current = storage.getStore();
-  const next: RequestContext = {
-    correlationId: patch.correlationId ?? current?.correlationId ?? newCorrelationId(),
-    ...((patch.causationId ?? current?.causationId)
-      ? { causationId: patch.causationId ?? current?.causationId }
-      : {}),
-    ...((patch.userId ?? current?.userId) ? { userId: patch.userId ?? current?.userId } : {}),
-    ...((patch.source ?? current?.source) ? { source: patch.source ?? current?.source } : {}),
-  };
-  return storage.run(next, fn);
-}

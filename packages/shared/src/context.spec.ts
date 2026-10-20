@@ -1,4 +1,4 @@
-import { extendContext, getContext, getCorrelationId, runWithContext } from "./context";
+import { getContext, getCorrelationId, runWithContext } from "./context";
 
 describe("контекст запроса", () => {
   it("виден из вложенных вызовов без передачи параметром", () => {
@@ -35,13 +35,5 @@ describe("контекст запроса", () => {
   it("выдаёт новый идентификатор вне контекста — запись не остаётся без привязки", () => {
     expect(getContext()).toBeUndefined();
     expect(getCorrelationId()).toMatch(/^[0-9a-f-]{36}$/);
-  });
-
-  it("дополняет контекст, сохраняя уже имеющиеся поля", () => {
-    const result = runWithContext({ correlationId: "corr-3" }, () =>
-      extendContext({ userId: "user-1" }, () => getContext()),
-    );
-
-    expect(result).toEqual({ correlationId: "corr-3", userId: "user-1" });
   });
 });

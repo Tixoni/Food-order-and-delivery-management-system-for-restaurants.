@@ -1,4 +1,4 @@
-import { createEvent, deriveEvent, InvalidEventError, parseEvent } from "./envelope";
+import { createEvent, InvalidEventError, parseEvent } from "./envelope";
 
 describe("конверт доменного события", () => {
   const base = {
@@ -37,22 +37,6 @@ describe("конверт доменного события", () => {
 
   it("не добавляет causationId, если причины нет", () => {
     expect(createEvent(base)).not.toHaveProperty("causationId");
-  });
-
-  describe("событие-следствие", () => {
-    it("наследует идентификатор действия и ссылается на причину", () => {
-      const cause = createEvent(base);
-      const effect = deriveEvent(cause, {
-        eventType: "PaymentAuthorized",
-        aggregateType: "Payment",
-        aggregateId: "payment-1",
-        payload: { amount: 1290 },
-      });
-
-      expect(effect.correlationId).toBe(cause.correlationId);
-      expect(effect.causationId).toBe(cause.messageId);
-      expect(effect.messageId).not.toBe(cause.messageId);
-    });
   });
 
   describe("разбор пришедшего события", () => {

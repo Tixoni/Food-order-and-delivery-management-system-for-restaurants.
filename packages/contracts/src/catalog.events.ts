@@ -68,11 +68,3 @@ export interface DeliveryZoneChangedPayload extends CatalogEventBase {
   zoneId: string;
   change: "created" | "updated";
 }
-
-export type CatalogEventPayload =
-  | MenuItemStoppedPayload
-  | MenuItemRestoredPayload
-  | MenuUpdatedPayload
-  | MenuStructureChangedPayload
-  | RestaurantChangedPayload
-  | DeliveryZoneChangedPayload;

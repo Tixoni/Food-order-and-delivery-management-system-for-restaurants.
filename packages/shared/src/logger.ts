@@ -79,25 +79,19 @@ export class Logger {
   private readonly service: string;
   private readonly minLevel: number;
   private readonly sink: (line: string) => void;
-  private readonly bindings: Record<string, unknown>;
 
-  constructor(options: LoggerOptions, bindings: Record<string, unknown> = {}) {
+  constructor(
+    private readonly options: LoggerOptions,
+    private readonly bindings: Record<string, unknown> = {},
+  ) {
     this.service = options.service;
     this.minLevel = LEVEL_ORDER[options.level ?? "info"];
     this.sink = options.sink ?? ((line) => process.stdout.write(line + "\n"));
-    this.bindings = bindings;
   }
 
   /** Дочерний журнал с постоянными полями: например, идентификатором заказа. */
   child(bindings: Record<string, unknown>): Logger {
-    return new Logger(
-      {
-        service: this.service,
-        level: this.levelName(),
-        sink: this.sink,
-      },
-      { ...this.bindings, ...bindings },
-    );
+    return new Logger(this.options, { ...this.bindings, ...bindings });
   }
 
   debug = (message: string, fields?: Record<string, unknown>) =>
@@ -113,12 +107,6 @@ export class Logger {
           ? { error: String(error) }
           : {};
     this.write("error", message, { ...details, ...fields });
-  }
-
-  private levelName(): LogLevel {
-    return (Object.keys(LEVEL_ORDER) as LogLevel[]).find(
-      (k) => LEVEL_ORDER[k] === this.minLevel,
-    ) as LogLevel;
   }
 
   private write(level: LogLevel, message: string, fields?: Record<string, unknown>) {

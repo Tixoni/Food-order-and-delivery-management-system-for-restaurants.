@@ -109,15 +109,3 @@ export function parseEvent<TPayload = unknown>(raw: unknown): DomainEvent<TPaylo
 
   return candidate as unknown as DomainEvent<TPayload>;
 }
-
-/** Событие-следствие: наследует корреляцию и ссылается на причину. */
-export function deriveEvent<TPayload>(
-  cause: DomainEvent,
-  input: Omit<CreateEventInput<TPayload>, "correlationId" | "causationId">,
-): DomainEvent<TPayload> {
-  return createEvent({
-    ...input,
-    correlationId: cause.correlationId,
-    causationId: cause.messageId,
-  });
-}
