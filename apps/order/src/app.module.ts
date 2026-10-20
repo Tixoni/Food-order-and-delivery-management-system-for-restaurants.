@@ -29,7 +29,6 @@ import {
   DeliveryHttpClient,
   PaymentHttpClient,
 } from "./infrastructure/external/participant.clients";
-import { DeliveryStub, PaymentStub } from "./infrastructure/external/participant.stubs";
 import {
   OrderOutboxPublisher,
   ParticipantEventsConsumer,
@@ -111,35 +110,27 @@ const httpClient = (
     },
 
     // Участники саги — сервисы `payment` и `delivery` по внутреннему HTTP
-    // со служебными токенами или заглушки внутри процесса для разработки
-    // без них. Переключение — PAYMENT_MODE / DELIVERY_MODE.
+    // со служебными токенами. Отказы для проверки компенсаций включаются
+    // у эмулятора платёжного провайдера, а не подменой участника.
     {
       provide: CATALOG_PORT,
       useValue: new CatalogHttpClient(httpClient("catalog", config.services.catalogUrl, config)),
     },
     {
       provide: PAYMENT_PORT,
-      useValue:
-        config.services.payment.mode === "http"
-          ? new PaymentHttpClient(
-              // Операции с деньгами платёжный сервис выполняет только
-              // по служебному токену.
-              httpClient("payment", config.services.payment.url, config, {
-                [INTERNAL_TOKEN_HEADER]: config.services.payment.internalToken,
-              }),
-            )
-          : new PaymentStub(config.paymentStub),
+      useValue: new PaymentHttpClient(
+        httpClient("payment", config.services.payment.url, config, {
+          [INTERNAL_TOKEN_HEADER]: config.services.payment.internalToken,
+        }),
+      ),
     },
     {
       provide: DELIVERY_PORT,
-      useValue:
-        config.services.delivery.mode === "http"
-          ? new DeliveryHttpClient(
-              httpClient("delivery", config.services.delivery.url, config, {
-                [INTERNAL_TOKEN_HEADER]: config.services.delivery.internalToken,
-              }),
-            )
-          : new DeliveryStub(),
+      useValue: new DeliveryHttpClient(
+        httpClient("delivery", config.services.delivery.url, config, {
+          [INTERNAL_TOKEN_HEADER]: config.services.delivery.internalToken,
+        }),
+      ),
     },
 
     PlaceOrderUseCase,

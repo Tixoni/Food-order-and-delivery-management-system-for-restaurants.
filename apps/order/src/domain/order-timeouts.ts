@@ -47,7 +47,50 @@ export interface TimeoutContext {
   etaMinutes?: number | null;
 }
 
-const minutes = (at: Date, value: number) => new Date(at.getTime() + value * 60_000);
+interface TimeoutRule {
+  action: "cancel" | "alert";
+  /** Что произошло — в причину отмены или в очередь оператора. */
+  text: string;
+  minutes: (limits: StatusTimeouts, context: TimeoutContext) => number;
+}
+
+/**
+ * Сроки и реакции по статусам — одна таблица на постановку срока и на его
+ * истечение: исполнитель саги берёт реакцию отсюда же, а не держит свою копию.
+ */
+export const TIMEOUT_RULES: Partial<Record<OrderStatus, TimeoutRule>> = {
+  CREATED: {
+    action: "cancel",
+    text: "заказ не перешёл к оплате вовремя",
+    minutes: (limits) => limits.createdMinutes,
+  },
+  PENDING_PAYMENT: {
+    action: "cancel",
+    text: "оплата не завершилась вовремя",
+    minutes: (limits) => limits.pendingPaymentMinutes,
+  },
+  AWAITING_RESTAURANT: {
+    action: "cancel",
+    text: "ресторан не подтвердил заказ вовремя",
+    minutes: (limits) => limits.awaitingRestaurantMinutes,
+  },
+  COOKING: {
+    action: "alert",
+    text: "готовка идёт вдвое дольше заявленного",
+    minutes: (limits, context) => (context.expectedCookingMin ?? 30) * limits.cookingOverrunFactor,
+  },
+  ASSIGNING_COURIER: {
+    action: "alert",
+    text: "курьер не найден вовремя",
+    minutes: (limits) => limits.assigningCourierMinutes,
+  },
+  IN_TRANSIT: {
+    action: "alert",
+    text: "доставка идёт дольше ожидаемого",
+    minutes: (limits, context) =>
+      context.etaMinutes ? context.etaMinutes * 2 : limits.inTransitDefaultMinutes,
+  },
+};
 
 /** Срок для статуса, в который заказ только что перешёл, или null для статусов без срока. */
 export function timeoutFor(
@@ -56,50 +99,11 @@ export function timeoutFor(
   context: TimeoutContext,
   limits: StatusTimeouts = DEFAULT_TIMEOUTS,
 ): TimeoutPolicy | null {
-  switch (status) {
-    case "CREATED":
-      return {
-        type: "TIMEOUT:CREATED",
-        fireAt: minutes(enteredAt, limits.createdMinutes),
-        action: "cancel",
-      };
-    case "PENDING_PAYMENT":
-      return {
-        type: "TIMEOUT:PENDING_PAYMENT",
-        fireAt: minutes(enteredAt, limits.pendingPaymentMinutes),
-        action: "cancel",
-      };
-    case "AWAITING_RESTAURANT":
-      return {
-        type: "TIMEOUT:AWAITING_RESTAURANT",
-        fireAt: minutes(enteredAt, limits.awaitingRestaurantMinutes),
-        action: "cancel",
-      };
-    case "COOKING":
-      return {
-        type: "TIMEOUT:COOKING",
-        fireAt: minutes(
-          enteredAt,
-          (context.expectedCookingMin ?? 30) * limits.cookingOverrunFactor,
-        ),
-        action: "alert",
-      };
-    case "ASSIGNING_COURIER":
-      return {
-        type: "TIMEOUT:ASSIGNING_COURIER",
-        fireAt: minutes(enteredAt, limits.assigningCourierMinutes),
-        action: "alert",
-      };
-    case "IN_TRANSIT":
-      return {
-        type: "TIMEOUT:IN_TRANSIT",
-        fireAt: minutes(
-          enteredAt,
-          context.etaMinutes ? context.etaMinutes * 2 : limits.inTransitDefaultMinutes,
-        ),
-        action: "alert",
-      };
-    default:
-      return null;
-  }
+  const rule = TIMEOUT_RULES[status];
+  if (!rule) return null;
+  return {
+    type: `TIMEOUT:${status}`,
+    fireAt: new Date(enteredAt.getTime() + rule.minutes(limits, context) * 60_000),
+    action: rule.action,
+  };
 }

@@ -19,11 +19,6 @@ const page = (value: number | undefined, fallback: number, max = MAX_PAGE) => {
   return value;
 };
 
-/**
- * Чтение заказов (облегчённый CQRS): готовые представления из отдельного
- * порта, без загрузки агрегата и саги. Права проверяются здесь — до того,
- * как данные уйдут наружу (SEC-2).
- */
 /** Клиенту — признак «можно отменить»; остальным он не нужен. */
 function forCustomer(view: OrderView, requester: Requester): OrderView {
   if (view.customerId !== requester.id || !requester.roles.includes("client")) return view;
@@ -33,6 +28,11 @@ function forCustomer(view: OrderView, requester: Requester): OrderView {
   };
 }
 
+/**
+ * Чтение заказов (облегчённый CQRS): готовые представления из отдельного
+ * порта, без загрузки агрегата и саги. Права проверяются здесь — до того,
+ * как данные уйдут наружу (SEC-2).
+ */
 @Injectable()
 export class OrderQueriesUseCase {
   constructor(@Inject(ORDER_READ_MODEL) private readonly read: OrderReadModel) {}

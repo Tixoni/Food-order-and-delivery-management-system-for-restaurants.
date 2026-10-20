@@ -3,6 +3,7 @@ import { ConflictError, isRetryable, runWithContext } from "@food-delivery/share
 import { COMPENSATIONS, SAGA_STEPS } from "../../domain/checkout-saga";
 import { SYSTEM, type Order } from "../../domain/order";
 import type { OrderStatus } from "../../domain/order-status";
+import { TIMEOUT_RULES } from "../../domain/order-timeouts";
 import {
   ORDER_REPOSITORY,
   type LoadedOrder,
@@ -16,21 +17,11 @@ import {
   type PaymentPort,
 } from "../ports/participants";
 import { SAGA_QUEUE, type ClaimedEntry, type SagaQueue } from "../ports/saga-queue";
-import { ORDER_COMMITTER, type CommitOptions, type OrderCommitter } from "./order-committer";
+import { ORDER_COMMITTER, type OrderCommitter } from "./order-committer";
 import { ORDER_WORKFLOW, type OrderWorkflow } from "./order-workflow";
 import { SAGA_SETTINGS, type SagaSettings } from "./saga-settings";
 
 export type RunOutcome = "completed" | "retry" | "discarded";
-
-/** Что делать по истечении срока статуса. */
-const TIMEOUT_TEXT: Partial<Record<OrderStatus, { action: "cancel" | "alert"; text: string }>> = {
-  CREATED: { action: "cancel", text: "заказ не перешёл к оплате вовремя" },
-  PENDING_PAYMENT: { action: "cancel", text: "оплата не завершилась вовремя" },
-  AWAITING_RESTAURANT: { action: "cancel", text: "ресторан не подтвердил заказ вовремя" },
-  COOKING: { action: "alert", text: "готовка идёт вдвое дольше заявленного" },
-  ASSIGNING_COURIER: { action: "alert", text: "курьер не найден вовремя" },
-  IN_TRANSIT: { action: "alert", text: "доставка идёт дольше ожидаемого" },
-};
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -191,7 +182,11 @@ export class SagaRunner {
     const { order, saga } = loaded;
     if (order.isTerminal) return this.drop(entry, "заказ уже завершён");
     if (saga.facts.paymentCaptured) {
-      return this.completeWith(entry, loaded, now, this.courierFollowUp(loaded, now));
+      await this.committer.commit(loaded, now, {
+        completeEntryId: entry.id,
+        schedule: this.courierFollowUp(loaded, now),
+      });
+      return "completed";
     }
 
     const request = { orderId: order.id, idempotencyKey: `${order.id}:capture` };
@@ -239,6 +234,7 @@ export class SagaRunner {
 
     const cookingMinutes = order.expectedCookingMin ?? 0;
     const readyAt = new Date((order.confirmedAt ?? now).getTime() + cookingMinutes * 60_000);
+    const { addressText, contactPhone } = order.snapshot();
     const request = {
       orderId: order.id,
       restaurantId: order.restaurantId,
@@ -248,8 +244,8 @@ export class SagaRunner {
       readyAt: readyAt.toISOString(),
       customerId: order.customerId,
       orderNumber: order.orderNumber,
-      dropoffAddress: order.snapshot().addressText,
-      contactPhone: order.snapshot().contactPhone,
+      dropoffAddress: addressText,
+      contactPhone,
     };
     const started = new Date();
     try {
@@ -271,7 +267,7 @@ export class SagaRunner {
   /** Снятие холда — компенсация шага 3. */
   private async voidPayment(entry: ClaimedEntry, loaded: LoadedOrder, now: Date) {
     const { order, saga } = loaded;
-    if (!saga.pendingCompensations().void) return this.finishIfDone(entry, loaded, now);
+    if (!saga.pendingCompensations().void) return this.finishCompensation(entry, loaded, now);
 
     const request = {
       orderId: order.id,
@@ -317,7 +313,7 @@ export class SagaRunner {
   private async refund(entry: ClaimedEntry, loaded: LoadedOrder, now: Date) {
     const { order, saga } = loaded;
     const amount = saga.pendingCompensations().refund;
-    if (amount === 0) return this.finishIfDone(entry, loaded, now);
+    if (amount === 0) return this.finishCompensation(entry, loaded, now);
 
     const request = {
       orderId: order.id,
@@ -349,7 +345,8 @@ export class SagaRunner {
   /** Освобождение курьера — компенсация шага 6. */
   private async releaseCourier(entry: ClaimedEntry, loaded: LoadedOrder, now: Date) {
     const { order, saga } = loaded;
-    if (!saga.pendingCompensations().releaseCourier) return this.finishIfDone(entry, loaded, now);
+    if (!saga.pendingCompensations().releaseCourier)
+      return this.finishCompensation(entry, loaded, now);
 
     const request = { orderId: order.id, idempotencyKey: `${order.id}:release` };
     const started = new Date();
@@ -379,7 +376,7 @@ export class SagaRunner {
   private async onTimeout(entry: ClaimedEntry, loaded: LoadedOrder, now: Date) {
     const { order } = loaded;
     const status = entry.type.slice("TIMEOUT:".length) as OrderStatus;
-    const rule = TIMEOUT_TEXT[status];
+    const rule = TIMEOUT_RULES[status];
     if (order.status !== status || !rule) return this.drop(entry, "статус уже сменился");
 
     if (rule.action === "cancel") order.cancel(SYSTEM, "TIMEOUT", rule.text, now);
@@ -436,32 +433,17 @@ export class SagaRunner {
     return "retry";
   }
 
+  /** Компенсация выполнена (или уже не нужна): сага завершается, когда вернули всё. */
   private async finishCompensation(
     entry: ClaimedEntry,
     loaded: LoadedOrder,
     now: Date,
-    step: SagaStepRecord,
+    step?: SagaStepRecord,
   ): Promise<RunOutcome> {
     if (loaded.saga.fullyCompensated && loaded.order.isTerminal) loaded.saga.finishCompensation();
-    await this.committer.commit(loaded, now, { completeEntryId: entry.id, steps: [step] });
-    return "completed";
-  }
-
-  private async finishIfDone(entry: ClaimedEntry, loaded: LoadedOrder, now: Date) {
-    if (loaded.saga.fullyCompensated && loaded.order.isTerminal) loaded.saga.finishCompensation();
-    await this.committer.commit(loaded, now, { completeEntryId: entry.id });
-    return "completed" as const;
-  }
-
-  private async completeWith(
-    entry: ClaimedEntry,
-    loaded: LoadedOrder,
-    now: Date,
-    schedule: CommitOptions["schedule"],
-  ): Promise<RunOutcome> {
     await this.committer.commit(loaded, now, {
       completeEntryId: entry.id,
-      ...(schedule ? { schedule } : {}),
+      ...(step ? { steps: [step] } : {}),
     });
     return "completed";
   }

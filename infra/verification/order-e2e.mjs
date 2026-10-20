@@ -7,10 +7,8 @@
  *   happy            — оформление → оплата → кухня → курьер → вручение;
  *                      повтор формы, события в Kafka, повтор события, DLQ;
  *   capture-failure  — платежи отказывают на списании: отзыв у ресторана,
- *                      снятие холда, отмена «техническая». С настоящим сервисом
- *                      платежей (PAYMENT_MODE=http) отказ включается у эмулятора
- *                      провайдера — задайте PROVIDER_URL; с заглушкой — order
- *                      запускается с PAYMENT_STUB_FAIL_OPERATION=capture;
+ *                      снятие холда, отмена «техническая». Отказ включается
+ *                      у эмулятора провайдера — нужен PROVIDER_URL;
  *   payment-down     — сервис платежей остановлен (REL-2): заказ всё равно
  *                      принимается, а затем отменяется с явной причиной;
  *   timeout-start    — оформить и оставить ждать ресторан (перед перезапуском);
@@ -327,15 +325,15 @@ async function happy() {
 
 async function captureFailure() {
   console.log("Сценарий: отказ платёжного сервиса на списании (REL-5)");
+  if (!provider)
+    throw new Error("сценарий capture-failure требует PROVIDER_URL эмулятора провайдера");
   const target = await pickRestaurant();
   const placed = await placeOrder(target);
   const orderId = placed.body.order.id;
   await waitStatus(orderId, "AWAITING_RESTAURANT");
   const kitchenToken = token(randomUUID(), ["kitchen"], target.restaurantId);
   // Отказ провайдера на списании включается только сейчас: холд уже прошёл.
-  if (provider) {
-    await request(provider, "/_emulator/settings", "POST", { failOperation: "capture" });
-  }
+  await request(provider, "/_emulator/settings", "POST", { failOperation: "capture" });
   const startedAt = performance.now();
   await request(order, `/orders/${orderId}/confirm`, "POST", { cookingMinutes: 15 }, kitchenToken);
   let done;
@@ -349,9 +347,7 @@ async function captureFailure() {
       "система не пришла в согласованное состояние за 60 с",
     );
   } finally {
-    if (provider) {
-      await request(provider, "/_emulator/settings", "POST", { failOperation: null });
-    }
+    await request(provider, "/_emulator/settings", "POST", { failOperation: null });
   }
   const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
   const final = await statusOf(orderId);
@@ -365,13 +361,11 @@ async function captureFailure() {
     "списание повторялось с задержкой",
   );
   check(steps.includes("VOID_PAYMENT:SUCCEEDED"), "холд снят — деньги клиента возвращены");
-  if (provider) {
-    const atProvider = await request(provider, `/_emulator/orders/${orderId}/payments`);
-    check(
-      atProvider.body.items.length === 1 && atProvider.body.items[0].status === "canceled",
-      "у провайдера ровно один платёж по заказу, холд отменён — деньги не списаны",
-    );
-  }
+  const atProvider = await request(provider, `/_emulator/orders/${orderId}/payments`);
+  check(
+    atProvider.body.items.length === 1 && atProvider.body.items[0].status === "canceled",
+    "у провайдера ровно один платёж по заказу, холд отменён — деньги не списаны",
+  );
   check(done.result.pending.length === 0, "висящих шагов и таймеров нет");
   const events = await readTopic("order.events", (value) => value.includes(orderId), 6000);
   const types = events.map((event) => JSON.parse(event.value).eventType);

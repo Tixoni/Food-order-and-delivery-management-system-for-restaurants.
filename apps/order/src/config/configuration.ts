@@ -41,24 +41,12 @@ export interface OrderConfig {
   };
   services: {
     catalogUrl: string;
-    /**
-     * Платежи и доставка: настоящий сервис по внутреннему HTTP или заглушка
-     * внутри процесса — пока сервис-участник не реализован.
-     */
     /** `internalToken` — служебный токен внутреннего API платёжного сервиса. */
-    payment: { mode: "http" | "stub"; url: string; internalToken: string };
+    payment: { url: string; internalToken: string };
     /** `internalToken` — служебный токен внутреннего API сервиса доставки. */
-    delivery: { mode: "http" | "stub"; url: string; internalToken: string };
+    delivery: { url: string; internalToken: string };
     timeoutMs: number;
     breaker: { failureThreshold: number; openDurationMs: number };
-  };
-  /** Поведение заглушки платежей — для проверки отказов (REL-5). */
-  paymentStub: {
-    /** Операция, которая всегда отказывает: authorize, capture, void, refund. */
-    failOperation: string | null;
-    /** Отказ банка на сумму больше указанной, копейки. */
-    declineAbove: number | null;
-    delayMs: number;
   };
   saga: SagaSettings;
   auth: {
@@ -86,14 +74,6 @@ function numeric(name: string, fallback: number, allowZero = false): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 0 || (!allowZero && value === 0)) {
     throw new Error(`переменная окружения ${name} должна быть целым положительным числом`);
-  }
-  return value;
-}
-
-function mode(name: string): "http" | "stub" {
-  const value = process.env[name] ?? "stub";
-  if (value !== "http" && value !== "stub") {
-    throw new Error(`${name} допускает значения http или stub, получено ${value}`);
   }
   return value;
 }
@@ -133,13 +113,6 @@ export function loadConfig(): OrderConfig {
   if (nodeEnv === "production" && process.env.AUTH_DISABLED === "true") {
     throw new Error("AUTH_DISABLED запрещён в production");
   }
-  const failOperation = process.env.PAYMENT_STUB_FAIL_OPERATION || null;
-  if (failOperation && !["authorize", "capture", "void", "refund"].includes(failOperation)) {
-    throw new Error(`PAYMENT_STUB_FAIL_OPERATION: неизвестная операция ${failOperation}`);
-  }
-  const declineAbove = process.env.PAYMENT_STUB_DECLINE_ABOVE
-    ? numeric("PAYMENT_STUB_DECLINE_ABOVE", 0)
-    : null;
 
   return {
     port: numeric("ORDER_PORT", 3002),
@@ -177,12 +150,10 @@ export function loadConfig(): OrderConfig {
     services: {
       catalogUrl: required("CATALOG_URL", "http://localhost:13001"),
       payment: {
-        mode: mode("PAYMENT_MODE"),
         url: required("PAYMENT_URL", "http://localhost:13003"),
         internalToken: required("PAYMENT_INTERNAL_TOKEN", "payment-internal-dev-token"),
       },
       delivery: {
-        mode: mode("DELIVERY_MODE"),
         url: required("DELIVERY_URL", "http://localhost:13004"),
         internalToken: required("DELIVERY_INTERNAL_TOKEN", "delivery-internal-dev-token"),
       },
@@ -191,11 +162,6 @@ export function loadConfig(): OrderConfig {
         failureThreshold: numeric("CIRCUIT_FAILURE_THRESHOLD", 5),
         openDurationMs: numeric("CIRCUIT_OPEN_MS", 10_000),
       },
-    },
-    paymentStub: {
-      failOperation,
-      declineAbove,
-      delayMs: numeric("PAYMENT_STUB_DELAY_MS", 0, true),
     },
     saga: {
       authorizeAttempts: numeric("SAGA_AUTHORIZE_ATTEMPTS", 5),

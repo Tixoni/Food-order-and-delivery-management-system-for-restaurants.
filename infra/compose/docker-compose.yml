@@ -307,10 +307,8 @@ services:
       - "${WEB_PORT:-13080}:8080"
 
   # Сервис заказов: автомат статусов, оркестратор саги, таймеры, корзина.
-  # Платежи и доставка до их реализации — заглушки внутри процесса
-  # (PAYMENT_MODE / DELIVERY_MODE = stub). Платежи с итерации 2 — настоящий
-  # сервис `payment` (PAYMENT_MODE=http); отказы для проверки компенсаций
-  # включаются у эмулятора провайдера: POST /_emulator/settings.
+  # С платежами и доставкой работает по внутреннему HTTP; отказы для проверки
+  # компенсаций включаются у эмулятора провайдера: POST /_emulator/settings.
   order:
     build:
       context: ../..
@@ -349,13 +347,10 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
       # Цены сверяются с каталогом через внутренний вход прокси — на обе реплики
       CATALOG_URL: http://proxy:8081
-      PAYMENT_MODE: ${PAYMENT_MODE:-http}
       PAYMENT_URL: http://payment:3003
       PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:-payment-internal-dev-token}
-      DELIVERY_MODE: ${DELIVERY_MODE:-http}
       DELIVERY_INTERNAL_TOKEN: ${DELIVERY_INTERNAL_TOKEN:-delivery-internal-dev-token}
       DELIVERY_URL: http://delivery:3004
-      PAYMENT_STUB_FAIL_OPERATION: ${PAYMENT_STUB_FAIL_OPERATION:-}
     ports:
       - "${ORDER_PORT:-13002}:3002"
 
