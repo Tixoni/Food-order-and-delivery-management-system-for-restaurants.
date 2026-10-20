@@ -5,6 +5,14 @@ import { activeTraceId } from "./trace-context";
 export const CORRELATION_HEADER = "x-correlation-id";
 export const TRACE_HEADER = "x-trace-id";
 
+/**
+ * Какой идентификатор от вызывающего принимается. Он попадает в каждую запись
+ * журнала, в заголовки сообщений брокера и в базы сервисов (в delivery —
+ * колонка VARCHAR(100)): длинная или произвольная строка от клиента сорвала
+ * бы там запись — вызов курьера по такому заказу не прошёл бы никогда.
+ */
+const ACCEPTED_ID = /^[A-Za-z0-9._:-]{1,100}$/;
+
 interface MinimalRequest {
   headers: Record<string, string | string[] | undefined>;
 }
@@ -25,7 +33,7 @@ export class CorrelationMiddleware implements NestMiddleware {
   use(req: MinimalRequest, res: MinimalResponse, next: () => void) {
     const incoming = req.headers[CORRELATION_HEADER];
     const correlationId =
-      typeof incoming === "string" && incoming.trim() !== "" ? incoming : newCorrelationId();
+      typeof incoming === "string" && ACCEPTED_ID.test(incoming) ? incoming : newCorrelationId();
 
     res.setHeader(CORRELATION_HEADER, correlationId);
     // Номер трассы — в ответе: по нему обращение находится в Jaeger (OBS-2)

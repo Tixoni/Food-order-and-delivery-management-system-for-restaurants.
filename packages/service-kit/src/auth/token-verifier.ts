@@ -58,12 +58,10 @@ export class TokenVerifier {
       });
 
       return this.toUser(payload as TokenClaims);
-    } catch (error) {
+    } catch {
       // Наружу уходит общая причина: подробности о том, чем именно
       // не подошёл токен, облегчают подбор.
-      throw new UnauthorizedError("токен недействителен", {
-        reason: error instanceof Error ? error.message : "unknown",
-      });
+      throw new UnauthorizedError("токен недействителен");
     }
   }
 
