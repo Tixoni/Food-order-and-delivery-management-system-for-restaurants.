@@ -41,8 +41,8 @@ import type { StopListEntry } from "../../domain/stop-list";
  * Доменные объекты наружу не отдаются: иначе внутреннее устройство
  * домена станет частью внешнего контракта и его нельзя будет менять.
  *
- * Проверка прав появится на шаге 1.4 вместе с ролями; пока
- * идентификатор ресторана приходит в пути запроса.
+ * Права проверяются дважды: роль — пометкой Roles, владение рестораном —
+ * assertManagesRestaurant по привязке из токена.
  */
 
 const optionGroupToResponse = (item: MenuItem) =>
@@ -323,6 +323,7 @@ export class MenuController {
       restaurantId: body.restaurantId,
       isAvailable: body.isAvailable,
       reason: body.reason ?? null,
+      actorId: user?.id ?? null,
     });
 
     return {

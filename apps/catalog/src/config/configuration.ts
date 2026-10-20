@@ -17,12 +17,6 @@ export interface CatalogConfig {
   redis: {
     host: string;
     port: number;
-    /**
-     * Срок жизни кэша меню. Это страховка на случай потери события,
-     * а не основной способ обновления: при изменении меню кэш
-     * сбрасывается сразу (CAT-4).
-     */
-    menuTtlSeconds: number;
   };
   kafka: {
     brokers: string[];
@@ -93,7 +87,6 @@ export function loadConfig(): CatalogConfig {
     redis: {
       host: required("REDIS_HOST", "localhost"),
       port: numeric("REDIS_PORT", 16379),
-      menuTtlSeconds: numeric("MENU_CACHE_TTL_SECONDS", 2),
     },
     kafka: {
       // Список через запятую: в рабочем окружении брокеров несколько,

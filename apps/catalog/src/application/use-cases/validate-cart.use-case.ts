@@ -53,10 +53,15 @@ export class ValidateCartUseCase {
     const offer = await this.zones.findOfferForRestaurant(point, input.restaurantId);
     if (!offer) throw new DomainRuleError("ресторан не доставляет по указанному адресу");
 
-    const categories = await this.menu.findCategories(input.restaurantId);
+    // Меню ресторана читается один раз, а не отдельным запросом на каждую позицию
+    const [categories, items] = await Promise.all([
+      this.menu.findCategories(input.restaurantId),
+      this.menu.findItems(input.restaurantId, { includeUnavailable: true }),
+    ]);
     const activeCategoryIds = new Set(
       categories.filter((category) => category.isActive).map((category) => category.id),
     );
+    const menuItems = new Map(items.map((item) => [item.id, item]));
     const lines = [];
     for (const requested of input.items) {
       if (
@@ -65,12 +70,8 @@ export class ValidateCartUseCase {
       ) {
         throw new ValidationError("itemId должен быть UUID");
       }
-      const item = await this.menu.findItemById(requested.itemId);
-      if (
-        !item ||
-        item.restaurantId !== input.restaurantId ||
-        !activeCategoryIds.has(item.categoryId)
-      ) {
+      const item = menuItems.get(requested.itemId);
+      if (!item || !activeCategoryIds.has(item.categoryId)) {
         throw new DomainRuleError("позиция не принадлежит действующему меню ресторана");
       }
       try {

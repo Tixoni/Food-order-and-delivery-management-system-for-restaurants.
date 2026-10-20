@@ -55,9 +55,4 @@ export class OutboxPublisher implements OnApplicationBootstrap, OnApplicationShu
   onApplicationShutdown(): Promise<void> {
     return this.relay.stop();
   }
-
-  /** Один проход отправки — для проверочных сценариев. */
-  tick(): Promise<number> {
-    return this.relay.tick();
-  }
 }

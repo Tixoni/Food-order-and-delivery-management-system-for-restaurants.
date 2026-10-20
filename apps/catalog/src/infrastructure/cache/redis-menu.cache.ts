@@ -20,19 +20,20 @@ import { MenuCacheCodec } from "./menu-cache.codec";
  *    поиск по образцу просматривает всё пространство ключей и на рабочей
  *    нагрузке останавливает Redis.
  */
+
+// Страховка на случай потерянного сброса: даже при недоступном брокере
+// стоп-лист не должен оставаться устаревшим дольше пяти секунд (CAT-4).
+const MENU_TTL_SECONDS = 2;
+
 @Injectable()
 export class RedisMenuCache implements MenuCache, OnApplicationShutdown {
   private readonly redis: ResilientRedisClient;
   private readonly logger: Logger;
-  private readonly ttlSeconds: number;
 
   constructor(
     @Inject(CATALOG_CONFIG) config: CatalogConfig,
     private readonly metrics: MetricsService,
   ) {
-    // Даже при недоступном брокере или сбое сброса стоп-лист не должен
-    // оставаться устаревшим дольше пяти секунд.
-    this.ttlSeconds = Math.min(config.redis.menuTtlSeconds, 2);
     this.logger = createLogger({ service: "catalog", level: config.logLevel }).child({
       component: "menu-cache",
     });
@@ -77,7 +78,7 @@ export class RedisMenuCache implements MenuCache, OnApplicationShutdown {
         this.key(restaurantId, includeUnavailable),
         MenuCacheCodec.encode(sections),
         "EX",
-        this.ttlSeconds,
+        MENU_TTL_SECONDS,
       );
     } catch {
       // Незаписанный кэш — не ошибка запроса: меню уже собрано и будет отдано.

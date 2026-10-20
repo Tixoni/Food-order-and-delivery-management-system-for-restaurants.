@@ -83,4 +83,10 @@ describe("проверка корзины перед оформлением", ()
     await menu.saveItem(menu.items[0].withAvailability(false));
     await expect(useCase.execute(request, monday)).rejects.toThrow(DomainRuleError);
   });
+
+  it("не принимает блюдо другого ресторана", async () => {
+    const { useCase, menu } = build();
+    menu.items[0] = item(ITEM_ID, "c-1", "Пицца", { price: 30000, restaurantId: "r-2" });
+    await expect(useCase.execute(request, monday)).rejects.toThrow(/не принадлежит/);
+  });
 });

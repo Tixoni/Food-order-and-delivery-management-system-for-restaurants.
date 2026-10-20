@@ -32,7 +32,7 @@ export interface SetAvailabilityInput {
   isAvailable: boolean;
   /** Причина со слов сотрудника — попадает в журнал и в событие. */
   reason?: string | null;
-  /** Кто изменил. Заполняется вместе с ролями (шаг 1.4). */
+  /** Кто изменил: идентификатор пользователя из токена. */
   actorId?: string | null;
 }
 
