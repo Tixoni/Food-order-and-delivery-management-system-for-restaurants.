@@ -219,6 +219,26 @@ describe("PaymentOperationsUseCase", () => {
       expect(provider.moved.capture).toBe(1);
     });
 
+    it("два брошенных возврата: возврат провайдера засчитывается один раз", async () => {
+      await authorize();
+      await payments.capture({ orderId, idempotencyKey: "c-1" });
+      provider.failNext = "after";
+      await expect(
+        payments.refund({ orderId, idempotencyKey: "r-1", amount: 50_000 }),
+      ).rejects.toThrow(ExternalServiceError);
+      // Второй возврат записан одновременным запросом и до провайдера не дошёл.
+      await repository.startOperation(orderId, "r-2", "c", (p) => p.planRefund(50_000));
+
+      // Обе операции сверяются с одним снимком платежа — как в одном проходе сверки.
+      for (const pending of await pendingNow()) await payments.reconcile(pending);
+
+      expect(statusOfKey("r-1")).toBe("SUCCEEDED");
+      expect(statusOfKey("r-2")).toBe("PENDING");
+      const [payment] = (await repository.history(orderId)).payments;
+      expect(payment!.refundedAmount).toBe(50_000);
+      expect(provider.moved.refund).toBe(1);
+    });
+
     it("снятие холда закрывает брошенное списание, и деньги не списываются позже", async () => {
       await authorize();
       provider.failOperation = "capture";

@@ -164,9 +164,7 @@ export class PaymentOperationsUseCase {
           return true;
         }
         const status = await this.statusOf(started.payment);
-        if (!happened(started.transaction, started.payment, status)) return false;
-        await this.succeed(started.transaction);
-        return true;
+        return this.closeIfHappened(started.transaction, status);
       },
     );
   }
@@ -212,9 +210,7 @@ export class PaymentOperationsUseCase {
 
     const status = await this.statusOf(payment);
     for (const transaction of closable) {
-      if (happened(transaction, payment, status)) {
-        await this.succeed(transaction);
-      } else {
+      if (!(await this.closeIfHappened(transaction, status))) {
         await this.finish(transaction, () => ({
           status: "FAILED",
           errorCode: "SUPERSEDED",
@@ -222,6 +218,24 @@ export class PaymentOperationsUseCase {
           events: [],
         }));
       }
+    }
+  }
+
+  /**
+   * Закрыть брошенную операцию, если она прошла у провайдера. Проверка —
+   * под блокировкой платежа, по его свежему состоянию: два брошенных возврата,
+   * сверенные с одним снимком, засчитали бы один возврат провайдера дважды.
+   */
+  private async closeIfHappened(
+    transaction: TransactionRecord,
+    status: ProviderPaymentStatus,
+  ): Promise<boolean> {
+    try {
+      await this.succeed(transaction, undefined, status);
+      return true;
+    } catch (error) {
+      if (error instanceof NotAtProvider) return false;
+      throw error;
     }
   }
 
@@ -306,10 +320,18 @@ export class PaymentOperationsUseCase {
     }
   }
 
-  /** Операция прошла у провайдера: новое состояние платежа, ответ и событие. */
-  private succeed(transaction: TransactionRecord, providerRef?: string) {
+  /**
+   * Операция прошла у провайдера: новое состояние платежа, ответ и событие.
+   * `status` — состояние у провайдера, если исход узнан сверкой, а не ответом.
+   */
+  private succeed(
+    transaction: TransactionRecord,
+    providerRef?: string,
+    status?: ProviderPaymentStatus,
+  ) {
     const amount = transaction.amount;
     return this.finish(transaction, (current, at) => {
+      if (status && !happened(transaction, current, status)) throw new NotAtProvider();
       switch (transaction.type) {
         case "CAPTURE":
           current.captured(at);
@@ -359,6 +381,9 @@ export class PaymentOperationsUseCase {
     }
   }
 }
+
+/** Операция у провайдера не прошла: итог не фиксируется, транзакция базы откатывается. */
+class NotAtProvider extends Error {}
 
 /** Прошла ли операция у провайдера — по фактическому состоянию платежа. */
 function happened(
