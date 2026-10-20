@@ -211,8 +211,8 @@ export class CourierUseCase {
     const position = {
       ...point,
       at: now,
-      accuracy: finiteOrNull(input.accuracy),
-      speed: finiteOrNull(input.speed),
+      accuracy: measureOrNull(input.accuracy),
+      speed: measureOrNull(input.speed),
     };
     await this.positions.save(context.courierId, position);
     this.history.add(context.courierId, position);
@@ -256,9 +256,16 @@ function notLinked() {
   return new ForbiddenError("учётная запись не привязана к курьеру — обратитесь к администратору");
 }
 
-function finiteOrNull(value: unknown): number | null {
+/**
+ * Точность и скорость от устройства. Вне диапазона колонки истории
+ * (NUMERIC(6,2), меньше 10 000) — «не измерено»: иначе одна такая точка
+ * срывала бы запись всей пачки координат, а с ней и обновление позиций
+ * для подбора. Точность определения места по сети бывает и 15 км.
+ */
+function measureOrNull(value: unknown): number | null {
   const number = Number(value);
-  return value === undefined || value === null || !Number.isFinite(number) ? null : number;
+  if (value === undefined || value === null || !Number.isFinite(number)) return null;
+  return number >= 0 && number < 10_000 ? number : null;
 }
 
 export function courierView(courier: Courier) {

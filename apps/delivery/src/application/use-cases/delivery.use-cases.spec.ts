@@ -248,6 +248,21 @@ describe("доставка (DLV-5) и события для order", () => {
 });
 
 describe("смена и геопозиция (DLV-1, DLV-2, TRK-2)", () => {
+  it("точность и скорость вне диапазона истории — «не измерено», запись пачки не срывается", async () => {
+    const w = setup();
+    const courier = w.addCourier("курьер", north(200), { status: "offline" });
+    const me = { userId: courier.userId };
+    await w.couriers.setShift(me, true);
+
+    await w.couriers.updateLocation(me, { ...north(150), accuracy: 15_000, speed: -3 });
+    await w.couriers.updateLocation(me, { ...north(140), accuracy: 25.5, speed: 4 });
+
+    expect(w.positions.history.map(({ position }) => [position.accuracy, position.speed])).toEqual([
+      [null, null],
+      [25.5, 4],
+    ]);
+  });
+
   it("позиция принимается только на смене; на доставке рассылается клиенту заказа", async () => {
     const w = setup();
     const courier = w.addCourier("курьер", north(200), { status: "offline" });
