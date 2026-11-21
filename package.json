@@ -19,6 +19,7 @@
     "env:up": "docker compose -f infra/compose/docker-compose.yml --profile core up -d",
     "env:up:auth": "docker compose -f infra/compose/docker-compose.yml --profile auth up -d",
     "env:up:full": "docker compose -f infra/compose/docker-compose.yml --profile full up -d",
+    "env:prepare": "node infra/prepare-demo.mjs",
     "env:down": "docker compose -f infra/compose/docker-compose.yml --profile full down",
     "env:reset": "docker compose -f infra/compose/docker-compose.yml --profile full down -v",
     "env:logs": "docker compose -f infra/compose/docker-compose.yml logs -f",
