@@ -222,6 +222,8 @@ async function payment(orderId) {
 try {
   await query(courier, shift, { on: true });
   await query(courier, move, origin);
+  // Подбор читает PostgreSQL, куда свежая позиция записывается пачкой.
+  await sleep(Number(process.env.LOCATION_FLUSH_INTERVAL_MS ?? 3000) + 500);
   const delivered = await placeOrder();
   active.add(delivered.id);
   await confirmOrder(delivered);

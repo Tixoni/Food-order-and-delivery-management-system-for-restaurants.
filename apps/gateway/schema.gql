@@ -328,6 +328,11 @@ type Mutation {
   markPickedUp(deliveryId: ID!): DeliveryTask!
 
   """
+  Отменить заказ оператором (ORD-6, ADM-3)
+  """
+  operatorCancelOrder(id: ID!, reason: String!, refundAmount: Int): Order!
+
+  """
   Оформить заказ (ORD-1, ORD-4)
   """
   placeOrder(input: PlaceOrderInput!): PlaceOrderResult!
@@ -640,6 +645,11 @@ type Query {
   Мои заказы (ORD-7)
   """
   myOrders(limit: Int! = 20, offset: Int! = 0): [Order!]!
+
+  """
+  Последние заказы и поиск по номеру (ADM-3)
+  """
+  operatorOrders(limit: Int! = 20, number: Int, offset: Int! = 0): [Order!]!
 
   """
   Заказ по идентификатору (TRK-1)
