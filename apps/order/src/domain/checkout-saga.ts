@@ -42,6 +42,7 @@ export interface SagaFacts {
   paymentId: string | null;
   paymentAuthorized: boolean;
   paymentCaptured: boolean;
+  paymentCapturedAt?: string;
   capturedAmount: Kopecks;
   paymentVoided: boolean;
   refundedAmount: Kopecks;

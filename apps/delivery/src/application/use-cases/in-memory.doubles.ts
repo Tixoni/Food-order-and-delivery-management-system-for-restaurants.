@@ -152,6 +152,7 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
       deliveryById: async (id) => {
         return restoreDelivery(this.deliveries.get(id));
       },
+      routeDistance: async (id) => this.routes.get(id)?.distanceMeters ?? null,
       activeDeliveryByOrder: async (orderId) => {
         return restoreDelivery(
           [...this.deliveries.values()].find(

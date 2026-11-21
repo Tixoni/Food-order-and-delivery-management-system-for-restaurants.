@@ -229,6 +229,14 @@ export class SqlDeliveryTx implements DeliveryTx {
     return row ? toDelivery(row) : null;
   }
 
+  async routeDistance(deliveryId: string) {
+    const [row] = await this.query<{ distance_m: number }>(
+      "SELECT distance_m FROM delivery_routes WHERE delivery_id = $1",
+      [deliveryId],
+    );
+    return row?.distance_m ?? null;
+  }
+
   async insertDelivery(delivery: Delivery) {
     const s = delivery.snapshot;
     try {

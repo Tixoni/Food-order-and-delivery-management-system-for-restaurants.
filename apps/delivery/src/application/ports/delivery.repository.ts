@@ -32,6 +32,7 @@ export interface CandidateInfo {
 export interface DeliveryTx {
   deliveryById(id: string): Promise<Delivery | null>;
   activeDeliveryByOrder(orderId: string): Promise<Delivery | null>;
+  routeDistance(deliveryId: string): Promise<number | null>;
   /** Вторая действующая доставка по заказу — `DuplicateDeliveryError`. */
   insertDelivery(delivery: Delivery): Promise<void>;
   saveDelivery(delivery: Delivery): Promise<void>;

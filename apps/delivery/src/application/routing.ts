@@ -84,9 +84,4 @@ export class Routing {
       return null;
     }
   }
-
-  /** Только сохранённый маршрут — без обращения к маршрутизатору. */
-  storedRoute(deliveryId: string): Promise<Route | null> {
-    return this.deliveries.routeOf(deliveryId);
-  }
 }

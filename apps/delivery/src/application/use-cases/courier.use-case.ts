@@ -158,12 +158,12 @@ export class CourierUseCase {
         const delivery = await this.deliveryOf(tx, deliveryId);
         if (delivery.pickUp(courier.id, now)) {
           await tx.saveDelivery(delivery);
-          const route = await this.routing.storedRoute(delivery.id);
+          const distance = await tx.routeDistance(delivery.id);
           const eta = etaMinutes(
             delivery.snapshot.pickup,
             delivery.snapshot.dropoff,
             courier.snapshot.vehicleType,
-            route?.distanceMeters ?? null,
+            distance,
           );
           await this.emit(tx, delivery, () =>
             deliveryEvents.pickedUp(delivery, courier.id, now, eta),

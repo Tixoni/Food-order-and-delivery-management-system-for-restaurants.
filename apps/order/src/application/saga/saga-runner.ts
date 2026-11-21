@@ -193,7 +193,11 @@ export class SagaRunner {
     const started = new Date();
     try {
       const result = await this.payment.capture(request);
-      saga.record({ paymentCaptured: true, capturedAmount: result.amount });
+      saga.record({
+        paymentCaptured: true,
+        capturedAmount: result.amount,
+        paymentCapturedAt: new Date().toISOString(),
+      });
       const step = this.step(entry, started, "SUCCEEDED", request, result);
       await this.committer.commit(loaded, now, {
         completeEntryId: entry.id,

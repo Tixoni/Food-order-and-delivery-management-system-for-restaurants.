@@ -37,6 +37,7 @@ import { DatabaseReadinessCheck } from "./infrastructure/persistence/database-re
 import { TypeOrmOrderReadModel } from "./infrastructure/persistence/typeorm-order-read-model";
 import { TypeOrmOrderRepository } from "./infrastructure/persistence/typeorm-order.repository";
 import { SagaScheduler } from "./infrastructure/scheduler/saga-scheduler";
+import { OrderMetrics } from "./infrastructure/order-metrics";
 import { CartController } from "./interface/http/cart.controller";
 import { KitchenController } from "./interface/http/kitchen.controller";
 import { OperatorController } from "./interface/http/operator.controller";
@@ -142,6 +143,7 @@ const httpClient = (
 
     // Фоновые процессы: исполнитель саги, отправка событий, приём событий.
     SagaScheduler,
+    OrderMetrics,
     OrderOutboxPublisher,
     ParticipantEventsConsumer,
   ],

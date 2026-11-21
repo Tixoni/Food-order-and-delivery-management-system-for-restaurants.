@@ -93,7 +93,11 @@ export class ParticipantEventsUseCase {
       case PAYMENT_EVENT_TYPES.captured: {
         const payload = event.payload as PaymentCapturedPayload;
         if (saga.facts.paymentCaptured) return false;
-        saga.record({ paymentCaptured: true, capturedAmount: payload.amount });
+        saga.record({
+          paymentCaptured: true,
+          capturedAmount: payload.amount,
+          paymentCapturedAt: event.occurredAt,
+        });
         if (order.status === "CANCELLED") options.schedule = this.workflow.compensations(saga, now);
         break;
       }
