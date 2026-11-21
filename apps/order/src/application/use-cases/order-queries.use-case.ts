@@ -70,14 +70,27 @@ export class OrderQueriesUseCase {
   /** ADM-3: поиск заказов оператором — по статусу и по очереди «нужно внимание». */
   async list(
     requester: Requester,
-    filter: { statuses?: string[]; attentionOnly?: boolean; limit?: number; offset?: number },
+    filter: {
+      orderNumber?: number;
+      statuses?: string[];
+      attentionOnly?: boolean;
+      limit?: number;
+      offset?: number;
+    },
   ) {
     if (!isStaff(requester)) throw new ForbiddenError("поиск заказов — для оператора");
+    if (
+      filter.orderNumber !== undefined &&
+      (!Number.isSafeInteger(filter.orderNumber) || filter.orderNumber < 1)
+    ) {
+      throw new ValidationError("номер заказа должен быть целым положительным числом");
+    }
     const unknown = (filter.statuses ?? []).filter(
       (status) => !(ORDER_STATUSES as readonly string[]).includes(status),
     );
     if (unknown.length > 0) throw new ValidationError("неизвестный статус заказа", { unknown });
     return this.read.list({
+      ...(filter.orderNumber !== undefined ? { orderNumber: filter.orderNumber } : {}),
       ...(filter.statuses?.length ? { statuses: filter.statuses } : {}),
       attentionOnly: filter.attentionOnly ?? false,
       limit: page(filter.limit, 50) || 50,

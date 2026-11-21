@@ -326,6 +326,36 @@ export const CANCEL_ORDER = gql`
   }
 `;
 
+export const OPERATOR_ORDERS = gql`
+  query OperatorOrders($number: Int, $limit: Int!, $offset: Int!) {
+    operatorOrders(number: $number, limit: $limit, offset: $offset) {
+      id
+      orderNumber
+      status
+      placedAt
+      restaurant {
+        id
+        name
+      }
+      amounts {
+        total
+      }
+    }
+  }
+`;
+
+export const OPERATOR_CANCEL_ORDER = gql`
+  mutation OperatorCancelOrder($id: ID!, $reason: String!, $refundAmount: Int) {
+    operatorCancelOrder(id: $id, reason: $reason, refundAmount: $refundAmount) {
+      id
+      status
+      cancelledAt
+      cancelReason
+      cancelComment
+    }
+  }
+`;
+
 /* ─────────────── Реальное время ─────────────── */
 
 export const ORDER_UPDATED = gql`

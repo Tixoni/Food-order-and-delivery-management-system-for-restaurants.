@@ -23,6 +23,7 @@ export class OperatorController {
   @Get()
   async list(
     @CurrentUser() user: AuthenticatedUser | undefined,
+    @Query("number") number?: string,
     @Query("status") status?: string,
     @Query("attention") attention?: string,
     @Query("limit") limit?: string,
@@ -37,6 +38,7 @@ export class OperatorController {
     const limitValue = optionalNumber(limit);
     const offsetValue = optionalNumber(offset);
     const items = await this.queries.list(requesterOf(user), {
+      ...(number !== undefined ? { orderNumber: Number(number) } : {}),
       ...(statuses ? { statuses } : {}),
       attentionOnly: attention === "true",
       ...(limitValue !== undefined ? { limit: limitValue } : {}),

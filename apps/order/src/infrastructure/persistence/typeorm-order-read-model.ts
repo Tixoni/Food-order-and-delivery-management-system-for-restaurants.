@@ -68,6 +68,10 @@ export class TypeOrmOrderReadModel implements OrderReadModel {
       parameters.push(filter.statuses);
       conditions.push(`o.status = ANY($${parameters.length}::varchar[])`);
     }
+    if (filter.orderNumber !== undefined) {
+      parameters.push(filter.orderNumber);
+      conditions.push(`o.order_number = $${parameters.length}`);
+    }
     if (filter.attentionOnly) conditions.push(`o.attention_at IS NOT NULL`);
     parameters.push(filter.limit, filter.offset);
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";

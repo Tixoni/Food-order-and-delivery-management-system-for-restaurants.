@@ -110,6 +110,36 @@ export class OrderResolver {
     return toOrder(await this.orders.cancel(token, id, reason ?? null));
   }
 
+  /* ─────────────── Оператор (ADM-3) ─────────────── */
+
+  @Roles(ROLES.operator, ROLES.admin)
+  @Query(() => [Order], { description: "Последние заказы и поиск по номеру (ADM-3)" })
+  async operatorOrders(
+    @Args("limit", { type: () => Int, defaultValue: 20 }) limit: number,
+    @Args("offset", { type: () => Int, defaultValue: 0 }) offset: number,
+    @Args("number", { type: () => Int, nullable: true }) number?: number,
+    @AccessToken() token?: string,
+  ): Promise<Order[]> {
+    return (
+      await this.orders.listForOperator(token, { limit, offset, number: number ?? null })
+    ).map(toOrder);
+  }
+
+  @Roles(ROLES.operator, ROLES.admin)
+  @Mutation(() => Order, { description: "Отменить заказ оператором (ORD-6, ADM-3)" })
+  async operatorCancelOrder(
+    @Args("id", { type: () => ID }) id: string,
+    @Args("reason") reason: string,
+    @Args("refundAmount", { type: () => Int, nullable: true }) refundAmount?: number,
+    @AccessToken() token?: string,
+  ): Promise<Order> {
+    const comment = reason.trim();
+    if (comment.length > MAX_COMMENT) {
+      throw new ValidationError(`причина длиннее ${MAX_COMMENT} символов`);
+    }
+    return toOrder(await this.orders.cancelForOperator(token, id, comment, refundAmount ?? null));
+  }
+
   /* ─────────────── Кухня (KIT-1..4) ─────────────── */
 
   /**

@@ -58,6 +58,37 @@ export class OrderClient {
     return result.items;
   }
 
+  async listForOperator(
+    token: string | undefined,
+    filter: { number?: number | null; limit: number; offset: number },
+  ): Promise<OrderView[]> {
+    const query = new URLSearchParams({
+      limit: String(filter.limit),
+      offset: String(filter.offset),
+    });
+    if (filter.number != null) query.set("number", String(filter.number));
+    const result = await this.http.request<{ items: OrderView[] }>({
+      method: "GET",
+      path: `/operator/orders?${query}`,
+      ...(token ? { token } : {}),
+    });
+    return result.items;
+  }
+
+  cancelForOperator(
+    token: string | undefined,
+    orderId: string,
+    reason: string,
+    refundAmount: number | null,
+  ): Promise<OrderView> {
+    return this.http.request({
+      method: "POST",
+      path: `/operator/orders/${encodeURIComponent(orderId)}/cancel`,
+      body: { reason, refundAmount },
+      ...(token ? { token } : {}),
+    });
+  }
+
   /** TRK-1: заказ целиком. */
   get(token: string | undefined, orderId: string): Promise<OrderView> {
     return this.http.request({

@@ -78,6 +78,7 @@ export interface OrderHistoryView {
 }
 
 export interface OrderListFilter {
+  orderNumber?: number;
   statuses?: string[];
   attentionOnly?: boolean;
   limit: number;

@@ -26,6 +26,9 @@ const KitchenPage = lazy(() =>
 const CourierPage = lazy(() =>
   import("./pages/courier/CourierPage").then((m) => ({ default: m.CourierPage })),
 );
+const OperatorOrdersPage = lazy(() =>
+  import("./pages/OperatorOrdersPage").then((m) => ({ default: m.OperatorOrdersPage })),
+);
 const AdminRestaurantsPage = lazy(() =>
   import("./pages/manager/AdminRestaurantsPage").then((m) => ({
     default: m.AdminRestaurantsPage,
@@ -111,6 +114,7 @@ function Header() {
         {hasRole("manager", "kitchen", "admin") && <NavLink to="/manage/menu">Меню</NavLink>}
         {hasRole("manager", "admin") && <NavLink to="/manage/zone">Зона доставки</NavLink>}
         {hasRole("admin") && <NavLink to="/admin/restaurants">Рестораны</NavLink>}
+        {hasRole("operator", "admin") && <NavLink to="/operator/orders">Поддержка</NavLink>}
 
         {user ? (
           <>
@@ -201,6 +205,15 @@ export function App() {
           element={
             <RequireRole roles={["admin"]}>
               <AdminRestaurantsPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/operator/orders"
+          element={
+            <RequireRole roles={["operator", "admin"]}>
+              <OperatorOrdersPage />
             </RequireRole>
           }
         />
