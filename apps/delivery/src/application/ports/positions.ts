@@ -19,7 +19,7 @@ export interface PositionCache {
   /** Актуальная позиция курьера; живёт недолго — потерявший связь курьер «устаревает». */
   save(courierId: string, position: Position): Promise<void>;
   get(courierId: string): Promise<Position | null>;
-  /** Рассылка позиции клиенту заказа: канал `ws:order:{orderId}` (PERF-3). */
+  /** Рассылка позиции в шлюз: канал `ws:order:{orderId}` (PERF-3). */
   publish(orderId: string, payload: unknown): Promise<void>;
 }
 

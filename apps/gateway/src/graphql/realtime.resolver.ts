@@ -10,6 +10,8 @@ import { restaurantOf } from "./order.resolver";
 /** Событие отдаётся подписчику как есть — без обёртки по имени поля. */
 const asIs = (payload: unknown) => payload;
 
+type PositionEvent = CourierPositionUpdate & { pickedUp?: boolean };
+
 /**
  * Подписки реального времени по WebSocket (graphql-ws): статус заказа,
  * позиция курьера, очередь кухни, предложения курьеру. Заменяют опрос.
@@ -39,13 +41,21 @@ export class RealtimeResolver {
 
   /** TRK-2: новая позиция курьера заказа (PERF-3 ≤ 2 с). */
   @Roles(ROLES.client, ROLES.operator, ROLES.admin)
-  @Subscription(() => CourierPositionUpdate, { resolve: asIs, description: "Позиция курьера" })
+  @Subscription(() => CourierPositionUpdate, {
+    resolve: asIs,
+    description: "Позиция курьера",
+    // Подписка может открыться до выдачи. Проверяем статус в каждом событии.
+    filter: (event: PositionEvent, _variables, context: { req?: { user?: AuthenticatedUser } }) =>
+      event.pickedUp === true ||
+      context.req?.user?.roles.some((role) => role === ROLES.operator || role === ROLES.admin) ===
+        true,
+  })
   async courierPositionUpdated(
     @Args("orderId", { type: () => ID }) orderId: string,
     @AccessToken() token?: string,
   ) {
     await this.delivery.position(token, orderId);
-    return this.hub.listen<CourierPositionUpdate>(channels.position(orderId));
+    return this.hub.listen<PositionEvent>(channels.position(orderId));
   }
 
   /** KIT-1: очередь кухни изменилась — новый заказ, отмена, курьер забрал. */

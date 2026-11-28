@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import { errorText } from "../api/client";
 import { RESTAURANTS, RESTAURANTS_NEARBY, type RestaurantSummary } from "../api/queries";
 import { formatDelivery, formatMinutes, formatMoney } from "../components/money";
+import { AddressMapPicker } from "../components/AddressMapPicker";
+import { TestOrderButton } from "../components/TestOrderButton";
 import { clearAddress, loadAddress, saveAddress, type Address } from "./address";
 
 /**
@@ -122,6 +124,7 @@ export function StorefrontPage() {
         Покажем рестораны, которые доставляют по вашему адресу, со стоимостью доставки и минимальной
         суммой заказа.
       </p>
+      <TestOrderButton />
 
       <form className="card form" onSubmit={search}>
         <div className="row">
@@ -141,6 +144,8 @@ export function StorefrontPage() {
             {searching ? "Ищем…" : "Найти"}
           </button>
         </div>
+
+        <AddressMapPicker key={address?.label} address={address} onChoose={chooseAddress} />
 
         <div className="row" style={{ gap: "0.375rem" }}>
           {SAMPLE_ADDRESSES.map((sample) => (

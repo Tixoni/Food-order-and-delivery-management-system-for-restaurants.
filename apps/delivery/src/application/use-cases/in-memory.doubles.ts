@@ -76,7 +76,13 @@ export class InMemoryDeliveryRepository implements DeliveryRepository {
     const delivery = courier.currentDeliveryId
       ? this.deliveries.get(courier.currentDeliveryId)
       : undefined;
-    return { courierId: courier.id, status: courier.status, orderId: delivery?.orderId ?? null };
+    const active = delivery?.status === "ASSIGNED" || delivery?.status === "PICKED_UP";
+    return {
+      courierId: courier.id,
+      status: courier.status,
+      orderId: active ? delivery.orderId : null,
+      pickedUp: delivery?.status === "PICKED_UP",
+    };
   }
 
   async listCouriers() {

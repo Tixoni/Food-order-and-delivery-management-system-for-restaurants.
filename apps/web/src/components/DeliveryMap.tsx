@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import "leaflet/dist/leaflet.css";
-import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, Polyline, Tooltip, useMap } from "react-leaflet";
 import type { GeoPoint } from "../api/queries";
+import { StreetMap, toLatLng } from "./StreetMap";
 
 interface Props {
   pickup: GeoPoint;
@@ -12,8 +12,6 @@ interface Props {
   /** Путь по дорогам; нет — пунктирная прямая (маршрутизатор недоступен). */
   route?: GeoPoint[] | null;
 }
-
-const toLatLng = (point: GeoPoint): [number, number] => [point.latitude, point.longitude];
 
 /** Карта подстраивается под точки, но не дёргается на каждой новой позиции курьера. */
 function FitBounds({ points }: { points: GeoPoint[] }) {
@@ -43,16 +41,7 @@ export default function DeliveryMap({
   const line = route && route.length >= 2 ? route : null;
   const points = [pickup, dropoff, ...(courier ? [courier] : []), ...(line ?? [])];
   return (
-    <MapContainer
-      center={toLatLng(courier ?? pickup)}
-      zoom={14}
-      className="map map--delivery"
-      scrollWheelZoom={false}
-    >
-      <TileLayer
-        attribution='&copy; участники <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+    <StreetMap center={courier ?? pickup} variant="delivery">
       <FitBounds points={points} />
       {line ? (
         <Polyline
@@ -90,6 +79,6 @@ export default function DeliveryMap({
           </Tooltip>
         </CircleMarker>
       )}
-    </MapContainer>
+    </StreetMap>
   );
 }

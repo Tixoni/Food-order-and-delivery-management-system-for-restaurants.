@@ -42,18 +42,20 @@ export class TrackingUseCase {
     }
 
     const state = delivery.snapshot;
-    // Позиция показывается, пока курьер едет к ресторану или к клиенту.
-    const visible =
-      state.courierId && (state.status === "ASSIGNED" || state.status === "PICKED_UP");
+    // Клиент видит курьера после выдачи, поддержка — с момента назначения.
+    const courierId =
+      state.status === "PICKED_UP" || (isStaff && state.status === "ASSIGNED")
+        ? state.courierId
+        : null;
     const [position, route] = await Promise.all([
-      visible ? this.positions.get(state.courierId!) : null,
+      courierId ? this.positions.get(courierId) : null,
       this.routing.deliveryRoute(delivery),
     ]);
     return {
       orderId,
       deliveryId: state.id,
       status: state.status,
-      courierId: visible ? state.courierId : null,
+      courierId,
       // Нет свежей позиции — клиент увидит «позиция устарела», а не точку
       // часовой давности.
       position,

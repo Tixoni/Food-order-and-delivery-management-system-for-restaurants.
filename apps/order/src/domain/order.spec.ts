@@ -54,6 +54,13 @@ const place = (overrides: Partial<Parameters<typeof Order.place>[0]> = {}) =>
     at,
   );
 
+it("принимает форматированный телефон, а номер с лишними цифрами отклоняет", () => {
+  expect(place({ contactPhone: "+7 (900) 000-00-00" }).snapshot().contactPhone).toBe(
+    "+7 (900) 000-00-00",
+  );
+  expect(() => place({ contactPhone: "+7949593943434454545" })).toThrow(OrderRuleError);
+});
+
 /** Заказ, доведённый до нужного статуса по таблице переходов. */
 function orderIn(status: OrderStatus): Order {
   const order = place();

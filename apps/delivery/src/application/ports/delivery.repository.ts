@@ -81,8 +81,9 @@ export interface CourierDashboard {
 export interface LocationContext {
   courierId: string;
   status: string;
-  /** Заказ, который курьер везёт или которому идёт навстречу, — для рассылки клиенту. */
+  /** Заказ, который курьер принял или уже везёт. */
   orderId: string | null;
+  pickedUp: boolean;
 }
 
 export interface DeliveryRepository {

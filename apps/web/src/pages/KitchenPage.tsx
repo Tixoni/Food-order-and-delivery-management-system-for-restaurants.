@@ -7,11 +7,14 @@ import {
   KITCHEN_QUEUE_CHANGED,
   MARK_ORDER_READY,
   REJECT_ORDER,
+  RESTAURANT,
   type Order,
+  type RestaurantSummary,
 } from "../api/queries";
 import { formatMoney } from "../components/money";
 import { formatTime } from "../components/orderStatus";
 import { countdown, useNow } from "../components/useNow";
+import { useManagedRestaurant } from "./manager/useManagedRestaurant";
 
 const COOKING_OPTIONS = [10, 15, 20, 30, 45];
 
@@ -27,33 +30,51 @@ const COOKING_OPTIONS = [10, 15, 20, 30, 45];
  * из того же таймера сервиса заказов, по которому заказ отменится сам.
  */
 export function KitchenPage() {
+  const { restaurantId, restaurantName, picker, missing } = useManagedRestaurant();
+  const restaurant = useQuery<{ restaurant: RestaurantSummary | null }>(RESTAURANT, {
+    variables: { id: restaurantId },
+    skip: !restaurantId || !!restaurantName,
+  });
   const queue = useQuery<{ kitchenQueue: Order[] }>(KITCHEN_QUEUE, {
+    variables: { restaurantId },
+    skip: !restaurantId,
     fetchPolicy: "network-only",
     // Страховка на случай потери соединения WebSocket.
     pollInterval: 30_000,
   });
-  const changed = useSubscription(KITCHEN_QUEUE_CHANGED);
+  const changed = useSubscription(KITCHEN_QUEUE_CHANGED, {
+    variables: { restaurantId },
+    skip: !restaurantId,
+  });
   const { refetch } = queue;
   useEffect(() => {
     if (changed.data) void refetch();
   }, [changed.data, refetch]);
 
-  const orders = queue.data?.kitchenQueue ?? [];
+  const orders = (queue.data?.kitchenQueue ?? []).filter(
+    (order) => order.restaurantId === restaurantId,
+  );
+  const name = restaurantName ?? restaurant.data?.restaurant?.name;
   const fresh = orders.filter((o) => o.status === "AWAITING_RESTAURANT");
   const cooking = orders.filter((o) => o.status === "COOKING");
   const waiting = orders.filter((o) => o.status === "READY" || o.status === "ASSIGNING_COURIER");
 
   // Новый заказ — заметно: счётчик в заголовке вкладки.
   useEffect(() => {
-    document.title = fresh.length > 0 ? `(${fresh.length}) Кухня` : "Кухня";
+    const title = name ? `Табло кухни · ${name}` : "Табло кухни";
+    document.title = fresh.length > 0 ? `(${fresh.length}) ${title}` : title;
     return () => {
       document.title = "Доставка еды";
     };
-  }, [fresh.length]);
+  }, [fresh.length, name]);
 
   return (
     <main className="page page--wide">
-      <h1 className="page__title">Кухня</h1>
+      <h1 className="page__title">Табло кухни</h1>
+      {name && <p className="checkout__address">{name}</p>}
+      {picker}
+      {missing}
+      {restaurant.error && <p className="notice notice--error">{errorText(restaurant.error)}</p>}
       <p className="page__hint">
         {changed.error
           ? "Нет связи для обновлений — очередь обновляется раз в 30 секунд."
@@ -62,32 +83,34 @@ export function KitchenPage() {
       {queue.error && <p className="notice notice--error">{errorText(queue.error)}</p>}
       {queue.loading && !queue.data && <p className="notice notice--quiet">Загружаем очередь…</p>}
 
-      <div className="kitchen">
-        <section className="kitchen__column" aria-label="Новые">
-          <h2 className="section__title">Новые · {fresh.length}</h2>
-          {fresh.length === 0 && <p className="item__note">Новых заказов нет.</p>}
-          {fresh.map((order) => (
-            <NewOrder key={order.id} order={order} onDone={() => void refetch()} />
-          ))}
-        </section>
+      {restaurantId && (
+        <div className="kitchen">
+          <section className="kitchen__column" aria-label="Новые">
+            <h2 className="section__title">Новые · {fresh.length}</h2>
+            {fresh.length === 0 && <p className="item__note">Новых заказов нет.</p>}
+            {fresh.map((order) => (
+              <NewOrder key={order.id} order={order} onDone={() => void refetch()} />
+            ))}
+          </section>
 
-        <section className="kitchen__column" aria-label="Готовятся">
-          <h2 className="section__title">Готовятся · {cooking.length}</h2>
-          {cooking.map((order) => (
-            <CookingOrder key={order.id} order={order} onDone={() => void refetch()} />
-          ))}
-        </section>
+          <section className="kitchen__column" aria-label="Готовятся">
+            <h2 className="section__title">Готовятся · {cooking.length}</h2>
+            {cooking.map((order) => (
+              <CookingOrder key={order.id} order={order} onDone={() => void refetch()} />
+            ))}
+          </section>
 
-        <section className="kitchen__column" aria-label="Ждут курьера">
-          <h2 className="section__title">Ждут курьера · {waiting.length}</h2>
-          {waiting.map((order) => (
-            <article key={order.id} className="card kitchen-card">
-              <OrderSummary order={order} />
-              <p className="item__note">Готов с {formatTime(order.readyAt)}</p>
-            </article>
-          ))}
-        </section>
-      </div>
+          <section className="kitchen__column" aria-label="Ждут курьера">
+            <h2 className="section__title">Ждут курьера · {waiting.length}</h2>
+            {waiting.map((order) => (
+              <article key={order.id} className="card kitchen-card">
+                <OrderSummary order={order} />
+                <p className="item__note">Готов с {formatTime(order.readyAt)}</p>
+              </article>
+            ))}
+          </section>
+        </div>
+      )}
     </main>
   );
 }

@@ -85,6 +85,14 @@ a {
 .header__user {
   color: var(--fg-muted);
   font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 34rem) {
+  .header__nav {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
 }
 
 .page {
@@ -361,6 +369,17 @@ button.small {
   margin: 0.5rem 0 0;
   color: var(--fg-muted);
   font-size: 0.875rem;
+}
+
+.address-picker__panel {
+  display: grid;
+  gap: 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.map--address {
+  height: clamp(14rem, 42vh, 24rem);
+  cursor: crosshair;
 }
 
 /* ─────────────── Таблица журнала ─────────────── */
@@ -826,7 +845,18 @@ button.small {
 
 .checkout {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+}
+
+.checkout__details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.75rem;
+}
+
+.checkout__details .field {
+  min-width: 0;
 }
 
 .checkout__address {
@@ -982,12 +1012,13 @@ textarea {
 
 .kitchen {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
 @media (min-width: 60rem) {
   .kitchen {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: start;
   }
 }
@@ -1000,6 +1031,7 @@ textarea {
 .kitchen-card {
   display: grid;
   gap: 0.5rem;
+  overflow-wrap: anywhere;
 }
 
 .kitchen-card--new {
@@ -1110,4 +1142,254 @@ textarea {
 .map--delivery {
   height: 16rem;
   border-radius: var(--radius);
+}
+
+/* Обновлённый интерфейс витрины и оформления. */
+:root {
+  --bg: #f3f5ef;
+  --fg: #203128;
+  --fg-muted: #68766e;
+  --border: #dfe6dd;
+  --accent: #245b43;
+  --accent-soft: #e8f1e5;
+  --radius: 1.125rem;
+  --shadow: 0 6px 24px rgb(25 48 35 / 4%);
+}
+.header {
+  padding: 1rem clamp(1rem, 4vw, 3rem);
+  background: #fffffff2;
+  backdrop-filter: blur(12px);
+}
+.header__brand {
+  font-size: 1.25rem;
+  letter-spacing: -0.04em;
+}
+.header__nav a {
+  padding: 0.375rem 0;
+}
+.page {
+  padding-top: clamp(1.25rem, 3vw, 2.5rem);
+  padding-bottom: 3rem;
+}
+.page__title {
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  line-height: 1.2;
+  letter-spacing: -0.045em;
+  margin-bottom: 0.625rem;
+}
+.card {
+  padding: clamp(1rem, 2.2vw, 1.5rem);
+}
+.card > .section__title:first-child {
+  margin-top: 0;
+}
+.restaurant {
+  padding: 1.5rem;
+  border-top: 4px solid var(--accent);
+}
+.restaurant:hover {
+  box-shadow: 0 8px 24px rgb(25 48 35 / 9%);
+}
+.restaurant__name {
+  font-size: 1.25rem;
+  letter-spacing: -0.025em;
+}
+input,
+select,
+textarea {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.875rem;
+  background: #fbfcf9;
+  border-radius: 0.75rem;
+}
+input[aria-invalid="true"] {
+  border-color: var(--danger);
+  background: #fff7f6;
+}
+button,
+.button {
+  min-height: 2.75rem;
+  border-radius: 0.75rem;
+  transition: box-shadow 150ms;
+}
+button:hover:not(:disabled),
+.button:hover {
+  box-shadow: 0 2px 8px rgb(25 48 35 / 14%);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+.test-order {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+}
+.test-order button {
+  background: #e8efdf;
+  border-color: #d2dec5;
+  color: #285136;
+}
+.page--checkout {
+  max-width: 72rem;
+}
+
+.page--tracking {
+  max-width: 54rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.steps {
+  min-width: 0;
+}
+
+@media (min-width: 48rem) {
+  .steps {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+.checkout {
+  align-items: start;
+}
+.checkout__summary {
+  background: #fdfefb;
+}
+.checkout__summary .basket__totals {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.checkout__address {
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: var(--accent-soft);
+}
+.checkout .address-picker > button {
+  width: 100%;
+}
+@media (min-width: 60rem) {
+  .page--checkout .checkout {
+    grid-template-columns: minmax(0, 1.3fr) minmax(18rem, 0.8fr);
+    gap: 1.5rem;
+  }
+  .checkout__summary {
+    position: sticky;
+    top: 6rem;
+  }
+}
+.address-dialog {
+  width: min(58rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  color: var(--fg);
+  background: var(--surface);
+  box-shadow: 0 24px 100px #16362440;
+  overflow-y: auto;
+}
+.address-dialog::backdrop {
+  background: #14271e70;
+  backdrop-filter: blur(5px);
+}
+.address-dialog__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+  padding: 1.5rem 1.5rem 0.75rem;
+}
+.address-dialog__header h2 {
+  margin: 0;
+  font-size: 1.625rem;
+  letter-spacing: -0.04em;
+}
+.address-dialog__header p {
+  margin: 0.25rem 0 0;
+  color: var(--fg-muted);
+}
+.address-dialog__search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 1.5rem 1rem;
+}
+.address-dialog__search input {
+  flex: 1 1 16rem;
+}
+.address-dialog .map--address {
+  height: clamp(15rem, 45dvh, 29rem);
+  border: 0;
+  border-radius: 0;
+  cursor: grab;
+}
+.address-dialog__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem 1rem;
+  padding: 1.25rem 1.5rem;
+  align-items: end;
+}
+.address-dialog__footer .notice {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.address-dialog__footer > button {
+  grid-column: 2;
+  grid-row: 1;
+}
+.address-pin {
+  background: transparent;
+  border: 0;
+}
+.address-pin span {
+  display: block;
+  width: 32px;
+  height: 32px;
+  background: var(--accent);
+  border: 5px solid white;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-shadow: 0 4px 12px #132c3650;
+}
+.address-dialog .leaflet-control-zoom a {
+  color: var(--fg);
+}
+@media (max-width: 40rem) {
+  .address-dialog {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100dvh;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .address-dialog__header {
+    padding: 1rem;
+  }
+  .address-dialog__search {
+    padding: 0 1rem 1rem;
+  }
+  .address-dialog__search input {
+    flex-basis: 100%;
+  }
+  .address-dialog .map--address {
+    height: 40dvh;
+    min-height: 14rem;
+  }
+  .address-dialog__footer {
+    padding: 1rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .address-dialog__footer > button {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .header {
+    position: relative;
+  }
 }

@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@apollo/client";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { errorText } from "../api/client";
 import {
   PLACE_ORDER,
@@ -10,7 +10,9 @@ import {
 } from "../api/queries";
 import { useBasket, type BasketLine } from "../cart/basket";
 import { formatMoney } from "../components/money";
-import { loadAddress } from "./address";
+import { AddressMapPicker } from "../components/AddressMapPicker";
+import { loadAddress, saveAddress } from "./address";
+import { TestOrderButton, TEST_ADDRESS, TEST_DETAILS } from "../components/TestOrderButton";
 
 /**
  * Оформление заказа (ORD-1).
@@ -26,7 +28,7 @@ import { loadAddress } from "./address";
  */
 
 const KEY_STORAGE = "fd:checkout-key";
-const PHONE = /^\+?[\d\s()-]{10,20}$/;
+const PHONE = /^(?:\+7[0-9]{10}|[78][0-9]{10}|[0-9]{10})$/;
 
 /** Подпись корзины: изменился выбор — это уже другой заказ и другой ключ. */
 function signatureOf(restaurantId: string | null, lines: BasketLine[]): string {
@@ -61,11 +63,37 @@ function forgetKey(): void {
 export function CheckoutPage() {
   const basket = useBasket();
   const navigate = useNavigate();
-  const address = loadAddress();
-  const [details, setDetails] = useState("");
+  const location = useLocation();
+  const [address, setAddress] = useState(loadAddress);
+  const [apartment, setApartment] = useState("");
+  const [entrance, setEntrance] = useState("");
+  const [floor, setFloor] = useState("");
   const [phone, setPhone] = useState("");
   const [comment, setComment] = useState("");
   const [touched, setTouched] = useState(false);
+  const fillTestDetails = () => {
+    setAddress(TEST_ADDRESS);
+    setApartment(TEST_DETAILS.apartment);
+    setEntrance(TEST_DETAILS.entrance);
+    setFloor(TEST_DETAILS.floor);
+    setPhone(TEST_DETAILS.phone);
+    setComment(TEST_DETAILS.comment);
+    setTouched(false);
+  };
+  useEffect(() => {
+    if (
+      (location.state as { testOrder?: boolean } | null)?.testOrder ||
+      sessionStorage.getItem("fd:test-order") === "1"
+    ) {
+      fillTestDetails();
+      sessionStorage.removeItem("fd:test-order");
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
+  const chooseAddress = (next: NonNullable<typeof address>) => {
+    setAddress(next);
+    saveAddress(next);
+  };
 
   const signature = signatureOf(basket.restaurantId, basket.lines);
   const idempotencyKey = useMemo(() => checkoutKey(signature), [signature]);
@@ -88,6 +116,7 @@ export function CheckoutPage() {
         <p className="notice notice--quiet">
           Корзина пуста. <Link to="/">Выбрать ресторан</Link>
         </p>
+        <TestOrderButton onPrepared={fillTestDetails} />
       </main>
     );
   }
@@ -100,23 +129,47 @@ export function CheckoutPage() {
           Сначала укажите адрес доставки <Link to="/">на витрине</Link> — от него зависят стоимость
           доставки и минимальная сумма заказа.
         </p>
+        <AddressMapPicker address={null} onChoose={chooseAddress} />
       </main>
     );
   }
 
-  const phoneValid = PHONE.test(phone.trim());
+  const cleanPhone = phone.trim();
+  const phoneValid = cleanPhone.length <= 32 && PHONE.test(cleanPhone.replace(/[ ()-]/g, ""));
+  const apartmentValid =
+    !apartment.trim() || /^[\p{L}\d][\p{L}\d/-]{0,15}$/u.test(apartment.trim());
+  const entranceValid = !entrance.trim() || /^[\p{L}\d][\p{L}\d-]{0,7}$/u.test(entrance.trim());
+  const floorValid = !floor.trim() || /^-?\d{1,3}$/.test(floor.trim());
   const shortfall = offer ? Math.max(0, offer.minOrderAmount - basket.itemsAmount) : 0;
   const notDelivering = nearby.data && !offer;
   // Телефон проверяется при нажатии, а не блокирует кнопку: иначе клиент
   // не поймёт, почему кнопка не нажимается.
   const canSubmit = !!offer && shortfall === 0 && !placing.loading;
 
-  const submit = async (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTouched(true);
-    if (!canSubmit || !phoneValid || !basket.restaurantId) return;
+    if (!canSubmit || !basket.restaurantId) return;
+    if (!apartmentValid || !entranceValid || !floorValid || !phoneValid) {
+      const invalidField = !apartmentValid
+        ? "apartment"
+        : !entranceValid
+          ? "entrance"
+          : !floorValid
+            ? "floor"
+            : "phone";
+      (event.currentTarget.elements.namedItem(invalidField) as HTMLInputElement | null)?.focus();
+      return;
+    }
 
-    const text = details.trim() ? `${address.label}, ${details.trim()}` : address.label;
+    const text = [
+      address.label,
+      apartment.trim() && `кв./офис ${apartment.trim()}`,
+      entrance.trim() && `подъезд ${entrance.trim()}`,
+      floor.trim() && `этаж ${floor.trim()}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
     try {
       const result = await place({
         variables: {
@@ -124,7 +177,7 @@ export function CheckoutPage() {
             restaurantId: basket.restaurantId,
             idempotencyKey,
             address: { text, latitude: address.latitude, longitude: address.longitude },
-            contactPhone: phone.trim(),
+            contactPhone: cleanPhone,
             comment: comment.trim() || null,
             items: basket.lines.map((line) => ({
               itemId: line.itemId,
@@ -145,27 +198,56 @@ export function CheckoutPage() {
   };
 
   return (
-    <main className="page page--narrow">
+    <main className="page page--checkout">
       <p className="page__crumbs">
         <Link to={`/restaurants/${basket.restaurantId}`}>← {basket.restaurantName}</Link>
       </p>
       <h1 className="page__title">Оформление заказа</h1>
+      <p className="page__hint">Проверьте адрес и контакт перед отправкой на кухню.</p>
+      <TestOrderButton onPrepared={fillTestDetails} />
 
       <form className="checkout" onSubmit={submit} noValidate>
         <section className="card form">
           <h2 className="section__title">Куда доставить</h2>
           <p className="checkout__address">{address.label}</p>
-          <div className="field">
-            <label className="field__label" htmlFor="details">
-              Квартира, подъезд, этаж
-            </label>
-            <input
-              id="details"
-              value={details}
-              onChange={(event) => setDetails(event.target.value)}
-              maxLength={120}
-              autoComplete="address-line2"
-            />
+          <AddressMapPicker address={address} onChoose={chooseAddress} />
+          <div className="checkout__details">
+            {(
+              [
+                [
+                  "apartment",
+                  "Квартира или офис",
+                  apartment,
+                  setApartment,
+                  apartmentValid,
+                  "Например, 42 или 42А",
+                ],
+                ["entrance", "Подъезд", entrance, setEntrance, entranceValid, "Например, 2"],
+                ["floor", "Этаж", floor, setFloor, floorValid, "Укажите целое число"],
+              ] as const
+            ).map(([id, label, value, setValue, valid, help]) => (
+              <div className="field" key={id}>
+                <label className="field__label" htmlFor={id}>
+                  {label}
+                </label>
+                <input
+                  id={id}
+                  name={id}
+                  value={value}
+                  onChange={(event) => setValue(event.target.value)}
+                  onBlur={() => {
+                    if (value.trim() && !valid) setTouched(true);
+                  }}
+                  aria-invalid={touched && !valid}
+                  aria-describedby={touched && !valid ? `${id}-error` : undefined}
+                />
+                {touched && !valid && (
+                  <span id={`${id}-error`} className="checkout__problem">
+                    {help}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
           <div className="field">
             <label className="field__label" htmlFor="phone">
@@ -173,6 +255,7 @@ export function CheckoutPage() {
             </label>
             <input
               id="phone"
+              name="phone"
               type="tel"
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
@@ -181,9 +264,12 @@ export function CheckoutPage() {
               autoComplete="tel"
               required
               aria-invalid={touched && !phoneValid}
+              aria-describedby={touched && !phoneValid ? "phone-error" : undefined}
             />
             {touched && !phoneValid && (
-              <span className="item__note checkout__problem">Укажите телефон: 10–11 цифр</span>
+              <span id="phone-error" className="item__note checkout__problem">
+                Укажите номер телефона, например +7 900 000-00-00.
+              </span>
             )}
           </div>
           <div className="field">
@@ -201,7 +287,7 @@ export function CheckoutPage() {
           </div>
         </section>
 
-        <section className="card">
+        <section className="card checkout__summary">
           <h2 className="section__title">Заказ в «{basket.restaurantName}»</h2>
           <ul className="basket__lines">
             {basket.lines.map((line) => (
@@ -241,6 +327,11 @@ export function CheckoutPage() {
 
           {nearby.loading && !nearby.data && (
             <p className="notice notice--quiet">Проверяем условия доставки…</p>
+          )}
+          {nearby.error && (
+            <p className="notice notice--error" role="alert">
+              {errorText(nearby.error)}
+            </p>
           )}
           {notDelivering && (
             <p className="notice notice--error">

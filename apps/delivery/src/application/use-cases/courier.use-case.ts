@@ -223,6 +223,7 @@ export class CourierUseCase {
         latitude: point.latitude,
         longitude: point.longitude,
         at: now.toISOString(),
+        pickedUp: context.pickedUp,
       });
     }
     return { accepted: true };

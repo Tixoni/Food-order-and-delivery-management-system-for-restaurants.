@@ -218,8 +218,8 @@ check(
   `цепочка предложений: ${chain.map((r) => `${r.sequence}:${r.response ?? "open"}`).join(" → ")}`,
 );
 
-/* ─────────── 4. Принял; позиция для клиента ─────────── */
-console.log("4. Второй курьер принял; позиция видна только клиенту заказа (TRK-2, SEC-7)");
+/* ─────────── 4. Принял; позиция до выдачи ─────────── */
+console.log("4. Второй курьер принял; позиция скрыта до выдачи (TRK-2, SEC-7)");
 const accepted = await call(delivery, `/offers/${farOffer.id}/accept`, "POST", {}, far.token);
 check(accepted.body?.status === "ASSIGNED", "курьер принял заказ");
 
@@ -252,7 +252,10 @@ check(
 );
 
 const own = await call(delivery, `/orders/${orderId}/courier-position`, "GET", null, clientToken);
-check(own.status === 200 && own.body.position?.latitude, "клиент заказа видит позицию курьера");
+check(
+  own.status === 200 && own.body.position === null && own.body.courierId === null,
+  "до выдачи позиция и идентификатор курьера скрыты от клиента",
+);
 const stranger = await call(
   delivery,
   `/orders/${orderId}/courier-position`,
@@ -275,6 +278,14 @@ await waitUntil(
   "заказ в пути",
 );
 check(true, "событие «забрал» перевело заказ в «в пути»");
+const inTransit = await call(
+  delivery,
+  `/orders/${orderId}/courier-position`,
+  "GET",
+  null,
+  clientToken,
+);
+check(inTransit.status === 200 && inTransit.body.position, "после выдачи клиент видит позицию");
 const early = await call(delivery, `/couriers/me/shift`, "POST", { onShift: false }, far.token);
 check(early.status === 422, "с заказом на руках со смены не уйти");
 await call(delivery, `/deliveries/${deliveryId}/delivered`, "POST", {}, far.token);

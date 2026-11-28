@@ -109,7 +109,7 @@ function Header() {
         <NavLink to="/">Витрина</NavLink>
         {hasRole("client") && <NavLink to="/orders">Мои заказы</NavLink>}
 
-        {hasRole("manager", "kitchen") && <NavLink to="/kitchen">Кухня</NavLink>}
+        {hasRole("manager", "kitchen", "admin") && <NavLink to="/kitchen">Табло кухни</NavLink>}
         {hasRole("courier") && <NavLink to="/courier">Доставка</NavLink>}
         {hasRole("manager", "kitchen", "admin") && <NavLink to="/manage/menu">Меню</NavLink>}
         {hasRole("manager", "admin") && <NavLink to="/manage/zone">Зона доставки</NavLink>}
@@ -118,7 +118,9 @@ function Header() {
 
         {user ? (
           <>
-            <span className="header__user">{user.name ?? user.email}</span>
+            <span className="header__user">
+              {hasRole("kitchen") ? "Табло ресторана" : (user.name ?? user.email)}
+            </span>
             <button type="button" className="secondary small" onClick={() => void logout()}>
               Выйти
             </button>

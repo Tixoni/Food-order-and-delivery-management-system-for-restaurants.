@@ -18,8 +18,10 @@ const CONNECTION = {
   password: process.env.POSTGRES_PASSWORD ?? "app",
 };
 
-const RESTAURANTS = Number(process.env.SEED_RESTAURANTS ?? 50);
-const COURIERS = Number(process.env.SEED_COURIERS ?? 20);
+const RESTAURANTS = Number(process.env.SEED_RESTAURANTS ?? 3);
+const DEMO = RESTAURANTS <= 3;
+const COURIERS = Number(process.env.SEED_COURIERS ?? (DEMO ? 1 : 20));
+const DEMO_NAMES = ["Вкусно Дворик", "Дом Обед", "Тёплая Печь"];
 
 /**
  * Точки не разбрасываются равномерно по городу: и заведения, и курьеры
@@ -92,8 +94,8 @@ async function seedCatalog(client) {
   let stopped = 0;
 
   for (let i = 0; i < RESTAURANTS; i++) {
-    const [lon, lat] = pointInCity();
-    const name = `${pick(PREFIX)} ${pick(SUFFIX)} №${i + 1}`;
+    const [lon, lat] = DEMO ? [37.6094 + i * 0.006, 55.7615 - i * 0.003] : pointInCity();
+    const name = DEMO ? DEMO_NAMES[i] : `${pick(PREFIX)} ${pick(SUFFIX)} №${i + 1}`;
 
     const {
       rows: [restaurant],
@@ -111,7 +113,7 @@ async function seedCatalog(client) {
         `ул. Примерная, д. ${int(1, 120)}`,
         lon,
         lat,
-        int(3, 12) * 10000, // минимальная сумма 300–1200 рублей
+        DEMO ? 50000 : int(3, 12) * 10000,
         int(0, 4) * 4900, // доставка 0–196 рублей
         int(15, 60),
         // каждый десятый ресторан отключён — чтобы фильтр выдачи было на чём проверить
@@ -126,7 +128,15 @@ async function seedCatalog(client) {
     await client.query(
       `INSERT INTO delivery_zones (restaurant_id, area, delivery_fee, min_order_amount)
        VALUES ($1, ST_Multi(ST_MakeEnvelope($2, $3, $4, $5, 4326))::geography, $6, $7)`,
-      [restaurant.id, lon - r, lat - r, lon + r, lat + r, int(0, 4) * 4900, int(3, 12) * 10000],
+      [
+        restaurant.id,
+        lon - r,
+        lat - r,
+        lon + r,
+        lat + r,
+        int(0, 4) * 4900,
+        DEMO ? 50000 : int(3, 12) * 10000,
+      ],
     );
 
     // Расписание: будни 10:00–23:00, выходные 11:00–00:00
@@ -134,12 +144,18 @@ async function seedCatalog(client) {
       await client.query(
         `INSERT INTO restaurant_schedules (restaurant_id, day_of_week, opens_at, closes_at)
          VALUES ($1, $2, $3, $4)`,
-        [restaurant.id, day, day < 5 ? "10:00" : "11:00", day < 5 ? "23:00" : "23:59"],
+        [
+          restaurant.id,
+          day,
+          DEMO ? "00:00" : day < 5 ? "10:00" : "11:00",
+          DEMO ? "23:59" : day < 5 ? "23:00" : "23:59",
+        ],
       );
     }
 
-    // Меню: 3–5 категорий, в каждой 5–10 блюд
-    const categories = [...CUISINES].sort(() => Math.random() - 0.5).slice(0, int(3, 5));
+    const categories = DEMO
+      ? CUISINES.slice(i * 2, i * 2 + 2)
+      : [...CUISINES].sort(() => Math.random() - 0.5).slice(0, int(3, 5));
 
     for (const [categoryIndex, [categoryName, dishes]] of categories.entries()) {
       const {
@@ -150,11 +166,13 @@ async function seedCatalog(client) {
         [restaurant.id, categoryName, categoryIndex],
       );
 
-      const count = int(5, 10);
+      const count = DEMO ? 3 : int(5, 10);
       for (let d = 0; d < count; d++) {
-        const dishName = `${pick(dishes)} ${d > dishes.length - 1 ? "особый" : ""}`.trim();
+        const dishName = DEMO
+          ? dishes[d]
+          : `${pick(dishes)} ${d > dishes.length - 1 ? "особый" : ""}`.trim();
         // Каждое двадцатое блюдо — в стоп-листе
-        const available = Math.random() > 0.05;
+        const available = DEMO || Math.random() > 0.05;
         if (!available) stopped++;
 
         const {
@@ -187,7 +205,7 @@ async function seedCatalog(client) {
         }
 
         // Модификаторы примерно у половины блюд
-        if (Math.random() < 0.5) {
+        if (DEMO ? d === 0 : Math.random() < 0.5) {
           const {
             rows: [group],
           } = await client.query(

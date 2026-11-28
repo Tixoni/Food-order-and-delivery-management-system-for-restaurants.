@@ -45,7 +45,7 @@ TypeScript, NestJS, TypeORM, React + Vite, GraphQL, WebSocket, Apache Kafka, Pos
 ```bash
 npm run env:up       # PostgreSQL + PostGIS, Redis, Kafka
 npm run db:migrate   # схема всех четырёх баз; повторный запуск безопасен
-npm run db:seed      # 50 ресторанов, ~1500 блюд, 20 курьеров
+npm run db:seed      # 3 деморесторана по 6 блюд, 1 курьер
 ```
 
 Миграции — `infra/migrations/`, каждая выполняется в своей транзакции; конвейер CI применяет их к чистой базе и проверяет, что повторный запуск ничего не меняет.

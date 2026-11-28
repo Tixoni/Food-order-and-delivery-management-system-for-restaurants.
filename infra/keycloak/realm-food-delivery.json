@@ -114,6 +114,7 @@
       "redirectUris": [
         "http://localhost:5173/*",
         "http://localhost:13000/*",
+        "http://localhost:13080/login?verified=1",
         "http://localhost:3000/*"
       ],
       "webOrigins": ["http://localhost:5173", "http://localhost:13000", "http://localhost:3000"],
@@ -201,8 +202,8 @@
     {
       "username": "kitchen@food.local",
       "email": "kitchen@food.local",
-      "firstName": "Пётр",
-      "lastName": "Поваров",
+      "firstName": "Табло",
+      "lastName": "ресторана",
       "enabled": true,
       "emailVerified": true,
       "credentials": [

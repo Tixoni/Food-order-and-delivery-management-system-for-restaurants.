@@ -263,7 +263,7 @@ describe("смена и геопозиция (DLV-1, DLV-2, TRK-2)", () => {
     ]);
   });
 
-  it("позиция принимается только на смене; на доставке рассылается клиенту заказа", async () => {
+  it("позиция принимается на смене; события отмечают, забрал ли курьер заказ", async () => {
     const w = setup();
     const courier = w.addCourier("курьер", north(200), { status: "offline" });
     const me = { userId: courier.userId };
@@ -278,9 +278,13 @@ describe("смена и геопозиция (DLV-1, DLV-2, TRK-2)", () => {
     const { deliveryId } = await w.request();
     await w.couriers.accept(me, w.openOffer(courier.id)!.id);
     await w.couriers.updateLocation(me, north(100));
+    await w.couriers.pickedUp(me, deliveryId);
+    await w.couriers.updateLocation(me, north(90));
 
-    expect(w.positions.published).toEqual([expect.objectContaining({ orderId: w.orderId })]);
-    expect(deliveryId).toBeDefined();
+    expect(w.positions.published).toMatchObject([
+      { orderId: w.orderId, payload: { pickedUp: false } },
+      { orderId: w.orderId, payload: { pickedUp: true } },
+    ]);
   });
 
   it("с заказом на руках со смены не уйти", async () => {
@@ -322,25 +326,34 @@ describe("экран курьера", () => {
 });
 
 describe("позиция курьера для клиента (SEC-7)", () => {
-  it("видит клиент заказа и оператор; чужой клиент — «не найдено»", async () => {
+  it("оператор видит позицию после назначения, клиент — после выдачи", async () => {
     const w = setup();
     const courier = w.addCourier("курьер", north(200));
-    await w.request();
-    await w.couriers.accept({ userId: courier.userId }, w.openOffer(courier.id)!.id);
-    await w.couriers.updateLocation({ userId: courier.userId }, north(120));
+    const { deliveryId } = await w.request();
+    const me = { userId: courier.userId };
+    const customer = { userId: w.customerId, roles: ["client"] };
+    const position = north(120);
+    await w.couriers.accept(me, w.openOffer(courier.id)!.id);
+    await w.couriers.updateLocation(me, position);
 
-    const own = await w.tracking.courierPosition(w.orderId, {
-      userId: w.customerId,
-      roles: ["client"],
+    await expect(w.tracking.courierPosition(w.orderId, customer)).resolves.toMatchObject({
+      status: "ASSIGNED",
+      position: null,
+      courierId: null,
     });
-    expect(own.position).toMatchObject({ latitude: north(120).latitude });
+    await expect(
+      w.tracking.courierPosition(w.orderId, { userId: randomUUID(), roles: ["operator"] }),
+    ).resolves.toMatchObject({ status: "ASSIGNED", position, courierId: courier.id });
 
+    await w.couriers.pickedUp(me, deliveryId);
+    await expect(w.tracking.courierPosition(w.orderId, customer)).resolves.toMatchObject({
+      status: "PICKED_UP",
+      position,
+      courierId: courier.id,
+    });
     await expect(
       w.tracking.courierPosition(w.orderId, { userId: randomUUID(), roles: ["client"] }),
     ).rejects.toThrow(NotFoundError);
-    await expect(
-      w.tracking.courierPosition(w.orderId, { userId: randomUUID(), roles: ["operator"] }),
-    ).resolves.toMatchObject({ status: "ASSIGNED" });
   });
 });
 

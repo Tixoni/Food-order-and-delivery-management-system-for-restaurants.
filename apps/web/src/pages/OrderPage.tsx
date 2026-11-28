@@ -31,7 +31,7 @@ const DeliveryMap = lazy(() => import("../components/DeliveryMap"));
  */
 const FALLBACK_POLL_MS = 30_000;
 
-/** Статусы, при которых на карте есть курьер. */
+/** Статусы, при которых показываем карту доставки. */
 const COURIER_STATUSES = ["COOKING", "READY", "ASSIGNING_COURIER", "IN_TRANSIT"];
 
 /** Уведомление о смене статуса (NTF-1, NTF-2): то, что клиенту важно узнать сразу. */
@@ -124,7 +124,7 @@ export function OrderPage() {
   const eta = expectedBy(order);
 
   const confirmCancel = async () => {
-    if (!window.confirm("Отменить заказ? Замороженные деньги вернутся на карту.")) return;
+    if (!window.confirm("Отменить заказ?")) return;
     try {
       await cancel({ variables: { id: order.id, reason: null } });
       await query.refetch();
@@ -134,7 +134,7 @@ export function OrderPage() {
   };
 
   return (
-    <main className="page page--narrow">
+    <main className="page page--tracking">
       <p className="page__crumbs">
         <Link to="/orders">← Мои заказы</Link>
       </p>
@@ -155,8 +155,7 @@ export function OrderPage() {
         {cancelled ? (
           <p className="notice notice--error">
             {cancelText(order.cancelReason)}
-            {order.cancelComment ? ` — ${order.cancelComment}` : ""}. Замороженные или уже списанные
-            деньги вернутся на карту.
+            {order.cancelComment ? ` — ${order.cancelComment}` : ""}
           </p>
         ) : (
           <ol className="steps" aria-label="Ход заказа">
@@ -210,7 +209,11 @@ export function OrderPage() {
 
       {order && COURIER_STATUSES.includes(order.status) && (
         // Новый статус — перечитать позицию: доставка могла появиться только что.
-        <CourierOnMap key={order.status} orderId={order.id} />
+        <CourierOnMap
+          key={order.status}
+          orderId={order.id}
+          inTransit={order.status === "IN_TRANSIT"}
+        />
       )}
 
       {notice && (
@@ -283,33 +286,29 @@ export function OrderPage() {
  * Позиция старше двух минут считается устаревшей: курьер мог потерять
  * связь, и точка часовой давности ввела бы клиента в заблуждение.
  */
-function CourierOnMap({ orderId }: { orderId: string }) {
+function CourierOnMap({ orderId, inTransit }: { orderId: string; inTransit: boolean }) {
   const initial = useQuery<{ courierPosition: OrderCourierPosition }>(COURIER_POSITION, {
     variables: { orderId },
     fetchPolicy: "network-only",
-    // Курьер принимает заказ без смены статуса заказа — экран узнаёт
-    // о назначении по живой позиции или при этом перечитывании.
+    // Курьер принимает заказ без смены статуса заказа — проверяем назначение опросом.
     pollInterval: 15_000,
   });
   const live = useSubscription<{ courierPositionUpdated: GeoPoint & { at: string } }>(
     COURIER_POSITION_UPDATED,
-    { variables: { orderId } },
+    { variables: { orderId }, skip: !inTransit },
   );
 
   const info = initial.data?.courierPosition;
   if (!info) return null;
   const position = live.data?.courierPositionUpdated ?? info.position;
   const stale = position && Date.now() - new Date(position.at).getTime() > 120_000;
-  // Позиции рассылаются только по принятой доставке: пришла живая
-  // позиция — курьер назначен, даже если запрос ещё не перечитан.
-  const assigned = info.status === "ASSIGNED" || info.status === "PICKED_UP" || !!live.data;
 
   return (
     <section className="card">
       <h2 className="section__title">
-        {info.status === "PICKED_UP"
+        {inTransit
           ? "Курьер едет к вам"
-          : assigned
+          : info.status === "ASSIGNED" || info.status === "PICKED_UP"
             ? "Курьер едет в ресторан"
             : "Ищем курьера"}
       </h2>
@@ -317,11 +316,11 @@ function CourierOnMap({ orderId }: { orderId: string }) {
         <DeliveryMap
           pickup={info.pickup}
           dropoff={info.dropoff}
-          courier={assigned && position && !stale ? position : null}
+          courier={inTransit && position && !stale ? position : null}
           route={info.route?.path}
         />
       </Suspense>
-      {assigned && (
+      {inTransit && (
         <p className="item__note">
           {!position || stale
             ? "Позиция курьера устарела — он мог потерять связь, доставка продолжается."

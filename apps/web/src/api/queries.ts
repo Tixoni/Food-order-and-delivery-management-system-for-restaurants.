@@ -413,16 +413,16 @@ export const COURIER_POSITION_UPDATED = gql`
 
 export const KITCHEN_QUEUE = gql`
   ${ORDER_FIELDS}
-  query KitchenQueue {
-    kitchenQueue {
+  query KitchenQueue($restaurantId: ID) {
+    kitchenQueue(restaurantId: $restaurantId) {
       ...OrderFields
     }
   }
 `;
 
 export const KITCHEN_QUEUE_CHANGED = gql`
-  subscription KitchenQueueChanged {
-    kitchenQueueChanged {
+  subscription KitchenQueueChanged($restaurantId: ID) {
+    kitchenQueueChanged(restaurantId: $restaurantId) {
       orderId
       status
       at

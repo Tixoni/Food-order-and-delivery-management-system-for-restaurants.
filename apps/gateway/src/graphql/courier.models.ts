@@ -136,7 +136,7 @@ export class OrderCourierPosition {
 
   @Field(() => CourierLocation, {
     nullable: true,
-    description: "Нет — курьер ещё не назначен или его позиция устарела",
+    description: "Клиенту доступна после выдачи заказа курьеру, пока позиция актуальна",
   })
   position?: CourierLocation | null;
 

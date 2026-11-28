@@ -105,13 +105,21 @@ export class SqlDeliveryRepository implements DeliveryRepository {
 
   async locationContext(userId: string): Promise<LocationContext | null> {
     const [row] = await this.dataSource.query(
-      `SELECT c.id, c.status, d.order_id
+      `SELECT c.id, c.status, d.order_id, d.status AS delivery_status
          FROM couriers c
          LEFT JOIN deliveries d ON d.id = c.current_delivery_id
+                               AND d.status IN ('ASSIGNED', 'PICKED_UP')
         WHERE c.user_id = $1`,
       [userId],
     );
-    return row ? { courierId: row.id, status: row.status, orderId: row.order_id ?? null } : null;
+    return row
+      ? {
+          courierId: row.id,
+          status: row.status,
+          orderId: row.order_id ?? null,
+          pickedUp: row.delivery_status === "PICKED_UP",
+        }
+      : null;
   }
 
   async listCouriers() {

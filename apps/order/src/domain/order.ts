@@ -109,6 +109,15 @@ export class Order {
     const addressText = props.addressText?.trim();
     if (!addressText) throw new OrderRuleError("не указан адрес доставки");
     if (addressText.length > 500) throw new OrderRuleError("адрес длиннее 500 символов");
+    const contactPhone = typeof props.contactPhone === "string" ? props.contactPhone.trim() : null;
+    if (
+      props.contactPhone != null &&
+      (!contactPhone ||
+        contactPhone.length > 32 ||
+        !/^(?:\+7[0-9]{10}|[78][0-9]{10}|[0-9]{10})$/.test(contactPhone.replace(/[ ()-]/g, "")))
+    ) {
+      throw new OrderRuleError("укажите номер телефона, например +7 900 000-00-00");
+    }
     if (props.comment && props.comment.length > 1000) {
       throw new OrderRuleError("комментарий длиннее 1000 символов");
     }
@@ -130,7 +139,7 @@ export class Order {
       addressText,
       location: props.location,
       pickup: props.pickup,
-      contactPhone: props.contactPhone?.trim() || null,
+      contactPhone: contactPhone ?? null,
       lines: [...props.lines],
       amounts: {
         items,

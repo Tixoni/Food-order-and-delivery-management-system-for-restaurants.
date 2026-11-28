@@ -499,7 +499,7 @@ type OrderCourierPosition {
   pickup: GeoPoint!
 
   """
-  Нет — курьер ещё не назначен или его позиция устарела
+  Клиенту доступна после выдачи заказа курьеру, пока позиция актуальна
   """
   position: CourierLocation
 
